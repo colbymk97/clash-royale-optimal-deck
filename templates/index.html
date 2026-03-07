@@ -9,40 +9,33 @@
 <body>
   <header class="site-header">
     <div class="header-inner">
-      <div class="logo">
-        <span class="crown">♛</span>
-        <span>Clash Royale Deck Builder AI</span>
-      </div>
+      <div class="logo"><span class="crown">♛</span><span>Clash Royale Deck Builder AI</span></div>
       <p class="tagline">AI-powered deck suggestions using real-time meta analysis</p>
     </div>
   </header>
 
   <main class="container">
-    <!-- Step 1: Import cards -->
+
+    <!-- Step 1: Card collection ──────────────────────────────────────────── -->
     <section class="card-section" id="import-section">
       <h2>Step 1: Add Your Cards</h2>
-
       <div class="import-tabs">
         <button class="tab-btn active" data-tab="manual">Manual Entry</button>
         <button class="tab-btn" data-tab="tag">Import by Player Tag</button>
       </div>
 
-      <!-- Manual entry tab -->
       <div class="tab-content active" id="tab-manual">
         <div class="add-card-row">
           <div class="search-wrap">
             <input type="text" id="card-search" placeholder="Search for a card..." autocomplete="off" />
             <ul id="card-suggestions" class="suggestions-list hidden"></ul>
           </div>
-          <select id="card-level">
-            <option value="">Level</option>
-          </select>
+          <select id="card-level"><option value="">Level</option></select>
           <button id="add-card-btn" class="btn btn-primary">Add Card</button>
         </div>
-        <p class="hint">Type a card name and select its level to add it to your collection.</p>
+        <p class="hint">Each card can only be added once — re-adding a card updates its level.</p>
       </div>
 
-      <!-- Player tag import tab -->
       <div class="tab-content" id="tab-tag">
         <div class="tag-row">
           <input type="text" id="player-tag" placeholder="#ABC123XYZ" autocomplete="off" />
@@ -53,7 +46,7 @@
       </div>
     </section>
 
-    <!-- Card collection display -->
+    <!-- Collection display ──────────────────────────────────────────────── -->
     <section class="card-section" id="collection-section">
       <div class="collection-header">
         <h2>Your Collection <span id="card-count" class="badge">0 cards</span></h2>
@@ -63,59 +56,187 @@
       <p id="collection-hint" class="hint center">Add at least 8 cards to generate deck suggestions.</p>
     </section>
 
-    <!-- Generate button -->
-    <section class="generate-section">
-      <button id="generate-btn" class="btn btn-generate" disabled>
-        <span class="btn-icon">⚔️</span> Analyze &amp; Generate Decks
-      </button>
-      <p class="generate-note">
-        Claude AI will search the current Clash Royale meta and recommend 3 optimal decks from your collection.
-      </p>
+    <!-- My Decks ─────────────────────────────────────────────────────────── -->
+    <section class="card-section" id="my-decks-section">
+      <div class="section-header">
+        <div>
+          <h2>My Decks <span id="my-decks-count" class="badge">0</span></h2>
+          <p class="hint" style="margin:0">Save recommendations or build your own, then fine-tune with AI</p>
+        </div>
+        <button id="new-deck-btn" class="btn btn-primary btn-sm">+ New Deck</button>
+      </div>
+      <div id="my-decks-empty" class="empty-state">
+        No saved decks yet. Save a deck from AI recommendations below, or click <strong>+ New Deck</strong> to build your own.
+      </div>
+      <div id="my-decks-grid" class="my-decks-grid"></div>
     </section>
 
-    <!-- Results section -->
+    <!-- Generate ────────────────────────────────────────────────────────── -->
+    <section class="generate-section">
+      <button id="generate-btn" class="btn btn-generate" disabled>
+        <span class="btn-icon">⚔️</span> Analyze &amp; Generate Recommendations
+      </button>
+      <p class="generate-note">Claude AI searches the current meta and recommends 3 optimal decks from your collection.</p>
+    </section>
+
+    <!-- Results ──────────────────────────────────────────────────────────── -->
     <section id="results-section" class="hidden">
       <div class="results-header">
-        <h2>Your Deck Suggestions</h2>
+        <h2>AI Deck Recommendations</h2>
         <div id="meta-context" class="meta-banner"></div>
       </div>
-
-      <!-- Streaming status -->
       <div id="stream-status" class="stream-status">
         <div class="spinner"></div>
         <span id="stream-msg">Searching for current meta information...</span>
       </div>
-
-      <!-- Deck cards -->
       <div id="decks-container"></div>
     </section>
 
-    <!-- History section -->
+    <!-- Recommendation History ───────────────────────────────────────────── -->
     <section class="card-section" id="history-section">
       <div class="history-header">
         <div>
-          <h2>Past Sessions</h2>
-          <p class="hint" style="margin:0">Previously generated deck suggestions</p>
+          <h2>Recommendation History</h2>
+          <p class="hint" style="margin:0">Past AI analyses — stale if you've upgraded cards since</p>
         </div>
         <button id="history-toggle-btn" class="btn btn-ghost btn-sm">Show</button>
       </div>
-
       <div id="history-list" class="history-list hidden">
-        <div id="history-loading" class="history-empty">
-          <div class="spinner"></div> Loading history...
-        </div>
-        <div id="history-empty" class="history-empty hidden">No past sessions yet. Generate your first decks above!</div>
+        <div id="history-loading" class="history-empty"><div class="spinner"></div> Loading...</div>
+        <div id="history-empty" class="history-empty hidden">No past sessions yet.</div>
         <div id="history-items"></div>
       </div>
     </section>
+
   </main>
 
   <footer class="site-footer">
     <p>Powered by Claude AI + Clash Royale API &mdash; Not affiliated with Supercell</p>
   </footer>
 
-  <!-- Chat Modal -->
-  <div id="chat-modal" class="chat-modal hidden" role="dialog" aria-modal="true" aria-labelledby="chat-deck-title">
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       Deck Builder Modal  (create / edit a saved deck)
+  ════════════════════════════════════════════════════════════════════════ -->
+  <div id="deck-builder-modal" class="modal-overlay hidden" role="dialog" aria-labelledby="deck-builder-title">
+    <div class="modal-backdrop" id="deck-builder-backdrop"></div>
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="deck-builder-title">Build a Deck</h3>
+        <button id="deck-builder-close" class="btn btn-ghost btn-sm">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="deck-name-input">Deck Name</label>
+          <input type="text" id="deck-name-input" placeholder="e.g., My Hog Cycle" maxlength="60" />
+        </div>
+        <div class="form-group">
+          <label>Cards <span id="slot-count-label" class="text-muted">(0 / 8)</span></label>
+          <p class="hint" style="margin-bottom:10px">Pick exactly 8 cards from your collection — no duplicates allowed.</p>
+          <div id="card-slots" class="card-slots"></div>
+        </div>
+        <p id="deck-builder-error" class="status-msg error hidden"></p>
+      </div>
+      <div class="modal-footer">
+        <button id="deck-builder-cancel" class="btn btn-ghost">Cancel</button>
+        <button id="deck-builder-save" class="btn btn-primary" disabled>Save Deck</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       Saved Deck Detail Modal  (analysis + fine-tune chat)
+  ════════════════════════════════════════════════════════════════════════ -->
+  <div id="deck-detail-modal" class="deck-detail-modal hidden" role="dialog" aria-labelledby="detail-deck-name">
+    <div class="detail-backdrop" id="detail-backdrop"></div>
+    <div class="detail-panel">
+
+      <div class="detail-header">
+        <div class="detail-title-group">
+          <div class="detail-source-label" id="detail-source-label"></div>
+          <h3 id="detail-deck-name">Deck</h3>
+          <div id="detail-meta-tags" class="detail-meta-tags"></div>
+        </div>
+        <div class="detail-header-actions">
+          <button id="detail-edit-btn" class="btn btn-ghost btn-sm">✏️ Edit Cards</button>
+          <button id="detail-delete-btn" class="btn btn-ghost btn-sm btn-danger-ghost">🗑 Delete</button>
+          <button id="detail-close-btn" class="btn btn-ghost btn-sm">✕ Close</button>
+        </div>
+      </div>
+
+      <div class="detail-body">
+
+        <!-- Left: deck cards + analysis ─────────────────────────────────── -->
+        <div class="detail-left">
+
+          <!-- Staleness warning -->
+          <div id="detail-stale-warning" class="stale-warning hidden">
+            <span>⚠️ Card levels have changed since last analysis</span>
+            <div class="stale-actions">
+              <button id="detail-update-levels-btn" class="btn btn-sm btn-ghost">Update Levels in Deck</button>
+              <button id="detail-reanalyze-btn" class="btn btn-sm btn-primary">Re-run Analysis</button>
+            </div>
+          </div>
+
+          <!-- Deck card chips -->
+          <div class="detail-cards-panel">
+            <h4 class="panel-label">Cards</h4>
+            <div id="detail-cards-display" class="detail-cards-display"></div>
+          </div>
+
+          <!-- Analysis section -->
+          <div class="detail-analysis-panel">
+            <h4 class="panel-label">Deep Analysis</h4>
+
+            <!-- No analysis yet -->
+            <div id="analysis-empty" class="analysis-empty">
+              <p>Get a meta assessment, suggested swaps from your collection, and detailed coaching.</p>
+              <button id="run-analysis-btn" class="btn btn-primary">Run Deep Analysis</button>
+            </div>
+
+            <!-- Running analysis -->
+            <div id="analysis-loading" class="analysis-loading hidden">
+              <div class="spinner"></div>
+              <span id="analysis-status-msg">Searching current meta...</span>
+            </div>
+
+            <!-- Analysis result display -->
+            <div id="analysis-result" class="analysis-result hidden"></div>
+          </div>
+        </div>
+
+        <!-- Right: fine-tune chat ───────────────────────────────────────── -->
+        <div class="detail-right">
+          <div class="detail-chat-header">
+            <h4>Fine-tune Chat</h4>
+            <p class="hint">Discuss strategy, request specific swaps, or explore matchups in depth</p>
+          </div>
+          <div id="detail-chat-messages" class="detail-chat-messages">
+            <div class="chat-welcome" id="detail-chat-welcome">
+              <p>💬 Ask me anything about this deck — card swaps, matchups, playstyle adjustments, or how to improve your win rate.</p>
+            </div>
+          </div>
+          <div class="detail-chat-input-area">
+            <div class="chat-input-row">
+              <input type="text" id="detail-chat-input" placeholder="Ask about strategy or improvements..." autocomplete="off" />
+              <button id="detail-chat-send" class="btn btn-primary">Send</button>
+            </div>
+            <div class="chat-suggestions-row">
+              <span class="chat-suggestion-label">Try:</span>
+              <button class="chat-suggestion detail-suggestion" data-q="What's the single best card swap I can make to improve this deck from my collection?">Best swap?</button>
+              <button class="chat-suggestion detail-suggestion" data-q="How should I adjust my playstyle in double elixir time?">Double elixir</button>
+              <button class="chat-suggestion detail-suggestion" data-q="What are the hardest matchups for this deck and how do I handle them?">Hard matchups</button>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /.detail-body -->
+    </div><!-- /.detail-panel -->
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       Recommendation Chat Modal
+  ════════════════════════════════════════════════════════════════════════ -->
+  <div id="chat-modal" class="chat-modal hidden" role="dialog" aria-labelledby="chat-deck-title">
     <div class="chat-backdrop" id="chat-backdrop"></div>
     <div class="chat-panel">
       <div class="chat-panel-header">
@@ -123,28 +244,20 @@
           <span class="chat-panel-label">Strategy Chat</span>
           <h3 id="chat-deck-title">Deck Name</h3>
         </div>
-        <button id="chat-close-btn" class="btn btn-ghost btn-sm" title="Close chat">✕ Close</button>
+        <button id="chat-close-btn" class="btn btn-ghost btn-sm">✕ Close</button>
       </div>
-
       <div class="chat-panel-context" id="chat-panel-context"></div>
-
       <div class="chat-messages" id="chat-messages">
         <div class="chat-welcome">
           <p>👋 Ask me anything about this deck — matchups, placements, elixir management, counters, or how to improve your gameplay!</p>
         </div>
       </div>
-
       <div class="chat-input-area">
         <div class="chat-input-row">
-          <input
-            type="text"
-            id="chat-input"
-            placeholder="Ask about strategy, matchups, card placement..."
-            autocomplete="off"
-          />
+          <input type="text" id="chat-input" placeholder="Ask about strategy, matchups, card placement..." autocomplete="off" />
           <button id="chat-send-btn" class="btn btn-primary">Send</button>
         </div>
-        <div class="chat-suggestions-row" id="chat-suggestions-row">
+        <div class="chat-suggestions-row">
           <span class="chat-suggestion-label">Try asking:</span>
           <button class="chat-suggestion" data-q="How do I counter Mega Knight with this deck?">vs Mega Knight</button>
           <button class="chat-suggestion" data-q="What's my best play in double elixir?">Double elixir tips</button>
@@ -153,6 +266,12 @@
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- Card slot picker dropdown (shared, moved by JS) -->
+  <div id="slot-picker-dropdown" class="slot-picker-dropdown hidden">
+    <input type="text" id="slot-picker-search" placeholder="Search cards..." autocomplete="off" />
+    <ul id="slot-picker-list" class="slot-picker-list"></ul>
   </div>
 
   <script src="/static/js/app.js"></script>

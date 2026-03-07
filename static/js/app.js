@@ -4,56 +4,126 @@
 
 // ── State ──────────────────────────────────────────────────────────────────
 const state = {
-  allCards: [],       // [{name, maxLevel, ...}] from /api/all-cards
-  collection: [],     // [{name, level, maxLevel}] — user's cards
-  deckIds: [],        // [int] deck IDs from last analysis
-  chat: {
-    deckId: null,     // currently open deck
-    deckData: null,   // {name, archetype, cards, ...}
+  allCards: [],        // [{name, maxLevel}]
+  collection: [],      // [{name, level, maxLevel}] — the user's owned cards (unique per name)
+  deckIds: [],         // rec deck IDs from the last analysis stream
+  savedDecks: [],      // [{id, name, source, cards, created_at, updated_at}]
+
+  // Deck builder modal
+  builder: {
+    editingId: null,   // null = new deck, int = editing existing
+    slots: Array(8).fill(null),  // each slot: {name, level, maxLevel} or null
+    activeSlot: null,  // index of slot currently showing picker
+  },
+
+  // Saved deck detail modal
+  detail: {
+    deckId: null,
+    deckData: null,
+    analysis: null,    // parsed analysis JSON or null
+    chatStreaming: false,
+    analysisStreaming: false,
+  },
+
+  // Recommendation chat
+  recChat: {
+    deckId: null,
+    deckData: null,
     streaming: false,
   },
 };
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
-const cardSearch       = document.getElementById("card-search");
-const cardLevelSel     = document.getElementById("card-level");
-const addCardBtn       = document.getElementById("add-card-btn");
-const suggestList      = document.getElementById("card-suggestions");
-const cardGrid         = document.getElementById("card-grid");
-const cardCountBadge   = document.getElementById("card-count");
-const collectionHint   = document.getElementById("collection-hint");
-const clearCardsBtn    = document.getElementById("clear-cards-btn");
+const $ = (id) => document.getElementById(id);
 
-const playerTagInput   = document.getElementById("player-tag");
-const fetchCardsBtn    = document.getElementById("fetch-cards-btn");
-const tagStatus        = document.getElementById("tag-status");
+// Collection
+const cardSearch     = $("card-search");
+const cardLevelSel   = $("card-level");
+const addCardBtn     = $("add-card-btn");
+const suggestList    = $("card-suggestions");
+const cardGrid       = $("card-grid");
+const cardCountBadge = $("card-count");
+const collectionHint = $("collection-hint");
+const clearCardsBtn  = $("clear-cards-btn");
+const playerTagInput = $("player-tag");
+const fetchCardsBtn  = $("fetch-cards-btn");
+const tagStatus      = $("tag-status");
 
-const generateBtn      = document.getElementById("generate-btn");
-const resultsSection   = document.getElementById("results-section");
-const streamStatus     = document.getElementById("stream-status");
-const streamMsg        = document.getElementById("stream-msg");
-const decksContainer   = document.getElementById("decks-container");
-const metaContext      = document.getElementById("meta-context");
+// Generate
+const generateBtn    = $("generate-btn");
+const resultsSection = $("results-section");
+const streamStatus   = $("stream-status");
+const streamMsg      = $("stream-msg");
+const decksContainer = $("decks-container");
+const metaContext    = $("meta-context");
 
-const historyToggleBtn = document.getElementById("history-toggle-btn");
-const historyList      = document.getElementById("history-list");
-const historyLoading   = document.getElementById("history-loading");
-const historyEmpty     = document.getElementById("history-empty");
-const historyItems     = document.getElementById("history-items");
+// My Decks
+const myDecksGrid    = $("my-decks-grid");
+const myDecksEmpty   = $("my-decks-empty");
+const myDecksCount   = $("my-decks-count");
+const newDeckBtn     = $("new-deck-btn");
 
-const chatModal        = document.getElementById("chat-modal");
-const chatBackdrop     = document.getElementById("chat-backdrop");
-const chatCloseBtn     = document.getElementById("chat-close-btn");
-const chatDeckTitle    = document.getElementById("chat-deck-title");
-const chatPanelContext = document.getElementById("chat-panel-context");
-const chatMessages     = document.getElementById("chat-messages");
-const chatInput        = document.getElementById("chat-input");
-const chatSendBtn      = document.getElementById("chat-send-btn");
+// History
+const historyToggleBtn = $("history-toggle-btn");
+const historyList      = $("history-list");
+const historyLoading   = $("history-loading");
+const historyEmpty     = $("history-empty");
+const historyItems     = $("history-items");
 
-// ── Initialise ─────────────────────────────────────────────────────────────
+// Deck Builder Modal
+const deckBuilderModal  = $("deck-builder-modal");
+const deckBuilderBdrop  = $("deck-builder-backdrop");
+const deckBuilderTitle  = $("deck-builder-title");
+const deckBuilderClose  = $("deck-builder-close");
+const deckBuilderCancel = $("deck-builder-cancel");
+const deckBuilderSave   = $("deck-builder-save");
+const deckNameInput     = $("deck-name-input");
+const cardSlotsEl       = $("card-slots");
+const slotCountLabel    = $("slot-count-label");
+const deckBuilderError  = $("deck-builder-error");
+
+// Slot picker
+const slotPickerDropdown = $("slot-picker-dropdown");
+const slotPickerSearch   = $("slot-picker-search");
+const slotPickerList     = $("slot-picker-list");
+
+// Saved Deck Detail Modal
+const deckDetailModal   = $("deck-detail-modal");
+const detailBackdrop    = $("detail-backdrop");
+const detailDeckName    = $("detail-deck-name");
+const detailSourceLabel = $("detail-source-label");
+const detailMetaTags    = $("detail-meta-tags");
+const detailEditBtn     = $("detail-edit-btn");
+const detailDeleteBtn   = $("detail-delete-btn");
+const detailCloseBtn    = $("detail-close-btn");
+const detailStaleWarn   = $("detail-stale-warning");
+const detailUpdateLvls  = $("detail-update-levels-btn");
+const detailReanalyze   = $("detail-reanalyze-btn");
+const detailCardsDisp   = $("detail-cards-display");
+const analysisEmpty     = $("analysis-empty");
+const analysisLoading   = $("analysis-loading");
+const analysisResult    = $("analysis-result");
+const analysisStatusMsg = $("analysis-status-msg");
+const runAnalysisBtn    = $("run-analysis-btn");
+const detailChatMsgs    = $("detail-chat-messages");
+const detailChatInput   = $("detail-chat-input");
+const detailChatSend    = $("detail-chat-send");
+
+// Rec Chat Modal
+const chatModal         = $("chat-modal");
+const chatBackdrop      = $("chat-backdrop");
+const chatCloseBtn      = $("chat-close-btn");
+const chatDeckTitle     = $("chat-deck-title");
+const chatPanelContext  = $("chat-panel-context");
+const chatMessages      = $("chat-messages");
+const chatInput         = $("chat-input");
+const chatSendBtn       = $("chat-send-btn");
+
+
+// ── Init ───────────────────────────────────────────────────────────────────
 async function init() {
   populateLevelOptions(14);
-  await loadAllCards();
+  await Promise.all([loadAllCards(), loadSavedDecks()]);
   bindEvents();
 }
 
@@ -62,9 +132,7 @@ async function loadAllCards() {
     const res = await fetch("/api/all-cards");
     const data = await res.json();
     state.allCards = data.cards || [];
-  } catch {
-    console.warn("Could not load card list.");
-  }
+  } catch { /* ignore */ }
 }
 
 function populateLevelOptions(max = 14) {
@@ -77,6 +145,7 @@ function populateLevelOptions(max = 14) {
   }
 }
 
+
 // ── Event Bindings ─────────────────────────────────────────────────────────
 function bindEvents() {
   // Tabs
@@ -85,79 +154,108 @@ function bindEvents() {
       document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
       document.querySelectorAll(".tab-content").forEach(t => t.classList.remove("active"));
       btn.classList.add("active");
-      document.getElementById(`tab-${btn.dataset.tab}`).classList.add("active");
+      $(`tab-${btn.dataset.tab}`).classList.add("active");
     });
   });
 
-  // Manual card entry
+  // Collection – manual
   cardSearch.addEventListener("input", onSearchInput);
   cardSearch.addEventListener("keydown", onSearchKeydown);
   document.addEventListener("click", (e) => {
     if (!cardSearch.contains(e.target)) hideSuggestions();
+    if (!slotPickerDropdown.contains(e.target)) hideSlotPicker();
   });
   addCardBtn.addEventListener("click", addCardFromInput);
 
-  // Player tag import
+  // Collection – tag import
   fetchCardsBtn.addEventListener("click", importByPlayerTag);
-  playerTagInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") importByPlayerTag();
-  });
-
-  // Collection
-  clearCardsBtn.addEventListener("click", () => {
-    state.collection = [];
-    renderCollection();
-  });
+  playerTagInput.addEventListener("keydown", e => { if (e.key === "Enter") importByPlayerTag(); });
+  clearCardsBtn.addEventListener("click", () => { state.collection = []; renderCollection(); });
 
   // Generate
   generateBtn.addEventListener("click", generateDecks);
 
-  // History toggle
+  // My Decks
+  newDeckBtn.addEventListener("click", () => openDeckBuilder(null));
+
+  // History
   historyToggleBtn.addEventListener("click", toggleHistory);
 
-  // Chat modal
-  chatBackdrop.addEventListener("click", closeChat);
-  chatCloseBtn.addEventListener("click", closeChat);
-  chatSendBtn.addEventListener("click", sendChatMessage);
-  chatInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
+  // Deck Builder Modal
+  deckBuilderBdrop.addEventListener("click", closeDeckBuilder);
+  deckBuilderClose.addEventListener("click", closeDeckBuilder);
+  deckBuilderCancel.addEventListener("click", closeDeckBuilder);
+  deckBuilderSave.addEventListener("click", saveDeckFromBuilder);
+  slotPickerSearch.addEventListener("input", renderSlotPickerList);
+  slotPickerSearch.addEventListener("keydown", onSlotPickerKeydown);
+
+  // Detail modal
+  detailBackdrop.addEventListener("click", closeDetailModal);
+  detailCloseBtn.addEventListener("click", closeDetailModal);
+  detailEditBtn.addEventListener("click", () => {
+    closeDetailModal();
+    openDeckBuilder(state.detail.deckId);
   });
-  document.querySelectorAll(".chat-suggestion").forEach(btn => {
-    btn.addEventListener("click", () => {
-      chatInput.value = btn.dataset.q;
-      chatInput.focus();
-    });
+  detailDeleteBtn.addEventListener("click", deleteSavedDeck);
+  runAnalysisBtn.addEventListener("click", runDeckAnalysis);
+  detailUpdateLvls.addEventListener("click", updateDeckLevels);
+  detailReanalyze.addEventListener("click", () => {
+    detailStaleWarn.classList.add("hidden");
+    runDeckAnalysis();
   });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !chatModal.classList.contains("hidden")) closeChat();
+  detailChatSend.addEventListener("click", sendDetailChatMessage);
+  detailChatInput.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendDetailChatMessage(); }
+  });
+  document.querySelectorAll(".detail-suggestion").forEach(btn => {
+    btn.addEventListener("click", () => { detailChatInput.value = btn.dataset.q; detailChatInput.focus(); });
+  });
+
+  // Rec Chat Modal
+  chatBackdrop.addEventListener("click", closeRecChat);
+  chatCloseBtn.addEventListener("click", closeRecChat);
+  chatSendBtn.addEventListener("click", sendRecChatMessage);
+  chatInput.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendRecChatMessage(); }
+  });
+  document.querySelectorAll("#chat-modal .chat-suggestion").forEach(btn => {
+    btn.addEventListener("click", () => { chatInput.value = btn.dataset.q; chatInput.focus(); });
+  });
+
+  // Global escape
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape") {
+      if (!deckDetailModal.classList.contains("hidden")) closeDetailModal();
+      else if (!chatModal.classList.contains("hidden")) closeRecChat();
+      else if (!deckBuilderModal.classList.contains("hidden")) closeDeckBuilder();
+    }
   });
 }
 
-// ── Autocomplete ───────────────────────────────────────────────────────────
+
+// ══════════════════════════════════════════════════════════════════════════
+// COLLECTION
+// ══════════════════════════════════════════════════════════════════════════
+
 let focusedIdx = -1;
 
 function onSearchInput() {
   const q = cardSearch.value.trim().toLowerCase();
   if (!q) { hideSuggestions(); return; }
-
   const alreadyAdded = new Set(state.collection.map(c => c.name.toLowerCase()));
   const matches = state.allCards
     .filter(c => c.name.toLowerCase().includes(q) && !alreadyAdded.has(c.name.toLowerCase()))
     .slice(0, 8);
-
   if (!matches.length) { hideSuggestions(); return; }
 
   suggestList.innerHTML = "";
   focusedIdx = -1;
-  matches.forEach((card) => {
+  matches.forEach(card => {
     const li = document.createElement("li");
     li.innerHTML = highlightMatch(card.name, q);
     li.dataset.name = card.name;
     li.dataset.maxLevel = card.maxLevel || 14;
-    li.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-      selectSuggestion(card.name, card.maxLevel || 14);
-    });
+    li.addEventListener("mousedown", e => { e.preventDefault(); selectSuggestion(card.name, card.maxLevel || 14); });
     suggestList.appendChild(li);
   });
   suggestList.classList.remove("hidden");
@@ -165,29 +263,15 @@ function onSearchInput() {
 
 function onSearchKeydown(e) {
   const items = suggestList.querySelectorAll("li");
-  if (e.key === "ArrowDown") {
-    e.preventDefault();
-    focusedIdx = Math.min(focusedIdx + 1, items.length - 1);
-    updateFocused(items);
-  } else if (e.key === "ArrowUp") {
-    e.preventDefault();
-    focusedIdx = Math.max(focusedIdx - 1, 0);
-    updateFocused(items);
-  } else if (e.key === "Enter") {
-    if (focusedIdx >= 0 && items[focusedIdx]) {
-      const li = items[focusedIdx];
-      selectSuggestion(li.dataset.name, parseInt(li.dataset.maxLevel));
-    } else {
-      addCardFromInput();
-    }
-  } else if (e.key === "Escape") {
-    hideSuggestions();
-  }
+  if (e.key === "ArrowDown") { e.preventDefault(); focusedIdx = Math.min(focusedIdx + 1, items.length - 1); updateFocused(items); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); focusedIdx = Math.max(focusedIdx - 1, 0); updateFocused(items); }
+  else if (e.key === "Enter") {
+    if (focusedIdx >= 0 && items[focusedIdx]) { const li = items[focusedIdx]; selectSuggestion(li.dataset.name, parseInt(li.dataset.maxLevel)); }
+    else addCardFromInput();
+  } else if (e.key === "Escape") hideSuggestions();
 }
 
-function updateFocused(items) {
-  items.forEach((li, i) => li.classList.toggle("focused", i === focusedIdx));
-}
+function updateFocused(items) { items.forEach((li, i) => li.classList.toggle("focused", i === focusedIdx)); }
 
 function selectSuggestion(name, maxLevel) {
   cardSearch.value = name;
@@ -197,23 +281,8 @@ function selectSuggestion(name, maxLevel) {
   cardLevelSel.focus();
 }
 
-function hideSuggestions() {
-  suggestList.classList.add("hidden");
-  suggestList.innerHTML = "";
-  focusedIdx = -1;
-}
+function hideSuggestions() { suggestList.classList.add("hidden"); suggestList.innerHTML = ""; focusedIdx = -1; }
 
-function highlightMatch(name, query) {
-  const idx = name.toLowerCase().indexOf(query);
-  if (idx === -1) return escapeHtml(name);
-  return (
-    escapeHtml(name.slice(0, idx)) +
-    `<mark>${escapeHtml(name.slice(idx, idx + query.length))}</mark>` +
-    escapeHtml(name.slice(idx + query.length))
-  );
-}
-
-// ── Add card manually ──────────────────────────────────────────────────────
 function addCardFromInput() {
   const name = cardSearch.value.trim();
   const level = parseInt(cardLevelSel.value);
@@ -224,44 +293,41 @@ function addCardFromInput() {
   if (existing) {
     existing.level = level;
     renderCollection();
-    cardSearch.value = "";
-    cardLevelSel.value = "";
-    cardSearch.focus();
+    afterAddCard();
     return;
   }
-
   const cardData = state.allCards.find(c => c.name.toLowerCase() === name.toLowerCase());
   const maxLevel = cardData ? (cardData.maxLevel || 14) : 14;
-
   state.collection.push({ name, level, maxLevel });
   renderCollection();
+  afterAddCard();
+}
+
+function afterAddCard() {
   cardSearch.value = "";
   cardLevelSel.value = "";
   hideSuggestions();
   cardSearch.focus();
+  // Refresh My Decks staleness display
+  renderMyDecks();
 }
 
-// ── Import by player tag ───────────────────────────────────────────────────
 async function importByPlayerTag() {
   const tag = playerTagInput.value.trim();
   if (!tag) { showTagStatus("Please enter a player tag.", "error"); return; }
-
   showTagStatus("Fetching your cards from Clash Royale API...", "loading");
   fetchCardsBtn.disabled = true;
-
   try {
     const res = await fetch(`/api/fetch-cards/${encodeURIComponent(tag)}`);
     const data = await res.json();
-
     if (data.error) { showTagStatus(`Error: ${data.error}`, "error"); return; }
-
-    state.collection = data.cards.map(c => ({
-      name: c.name,
-      level: c.level,
-      maxLevel: c.maxLevel || 14,
-    }));
+    // Deduplicate by name (API should already be unique, but be safe)
+    const seen = new Set();
+    state.collection = data.cards
+      .filter(c => { const k = c.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; })
+      .map(c => ({ name: c.name, level: c.level, maxLevel: c.maxLevel || 14 }));
     renderCollection();
-
+    renderMyDecks(); // refresh staleness
     const { name, trophies, arena } = data.player || {};
     const label = [name, trophies && `${trophies} trophies`, arena].filter(Boolean).join(" · ");
     showTagStatus(`Imported ${data.total} cards for ${label}`, "success");
@@ -278,31 +344,656 @@ function showTagStatus(msg, type) {
   tagStatus.classList.remove("hidden");
 }
 
-// ── Render collection ──────────────────────────────────────────────────────
 function renderCollection() {
   cardGrid.innerHTML = "";
   state.collection.forEach((card, i) => {
     const chip = document.createElement("div");
     chip.className = "card-chip";
-    chip.innerHTML = `
-      <span class="chip-level">${card.level}</span>
-      <span class="chip-name">${escapeHtml(card.name)}</span>
-      <button class="chip-remove" title="Remove" data-idx="${i}">&times;</button>
-    `;
-    chip.querySelector(".chip-remove").addEventListener("click", () => {
-      state.collection.splice(i, 1);
-      renderCollection();
-    });
+    chip.innerHTML = `<span class="chip-level">${card.level}</span><span class="chip-name">${escapeHtml(card.name)}</span><button class="chip-remove" title="Remove">&times;</button>`;
+    chip.querySelector(".chip-remove").addEventListener("click", () => { state.collection.splice(i, 1); renderCollection(); renderMyDecks(); });
     cardGrid.appendChild(chip);
   });
-
   const count = state.collection.length;
   cardCountBadge.textContent = `${count} card${count !== 1 ? "s" : ""}`;
   collectionHint.style.display = count > 0 ? "none" : "";
   generateBtn.disabled = count < 8;
 }
 
-// ── Generate decks ─────────────────────────────────────────────────────────
+
+// ══════════════════════════════════════════════════════════════════════════
+// MY DECKS
+// ══════════════════════════════════════════════════════════════════════════
+
+async function loadSavedDecks() {
+  try {
+    const res = await fetch("/api/saved-decks");
+    const data = await res.json();
+    state.savedDecks = data.decks || [];
+    renderMyDecks();
+  } catch { /* ignore */ }
+}
+
+function renderMyDecks() {
+  myDecksGrid.innerHTML = "";
+  if (!state.savedDecks.length) {
+    myDecksEmpty.style.display = "";
+    myDecksCount.textContent = "0";
+    return;
+  }
+  myDecksEmpty.style.display = "none";
+  myDecksCount.textContent = state.savedDecks.length;
+
+  state.savedDecks.forEach(deck => {
+    const stale = isDeckStale(deck);
+    const el = document.createElement("div");
+    el.className = `my-deck-card${stale ? " is-stale" : ""}`;
+
+    const winCards = getWinCards(deck);
+    const chipHtml = (deck.cards || []).map(c => {
+      const isWin = winCards.has(c.name.toLowerCase());
+      return `<span class="mini-chip${isWin ? " win-con" : ""}">${escapeHtml(c.name)}</span>`;
+    }).join("");
+
+    const sourceLbl = deck.source === "recommendation" ? "💡 Saved from AI" : "🔧 Manual build";
+
+    el.innerHTML = `
+      <div class="my-deck-card-header">
+        <div>
+          <div class="my-deck-card-title">${escapeHtml(deck.name)}</div>
+          <div class="my-deck-card-source">${sourceLbl}</div>
+        </div>
+        ${stale ? '<span class="tag tag-stale">⚠ Levels Updated</span>' : ""}
+      </div>
+      <div class="my-deck-card-chips">${chipHtml}</div>
+      <div class="my-deck-card-footer">
+        <button class="btn btn-primary btn-sm open-saved-deck-btn">Open & Analyze</button>
+        <button class="btn btn-ghost btn-sm edit-saved-deck-btn">Edit</button>
+      </div>
+    `;
+    el.querySelector(".open-saved-deck-btn").addEventListener("click", () => openDetailModal(deck.id));
+    el.querySelector(".edit-saved-deck-btn").addEventListener("click", () => openDeckBuilder(deck.id));
+    myDecksGrid.appendChild(el);
+  });
+}
+
+/** A saved deck is stale if any of its card levels differ from current collection */
+function isDeckStale(deck) {
+  if (!state.collection.length) return false;
+  return (deck.cards || []).some(dc => {
+    const cur = state.collection.find(c => c.name.toLowerCase() === dc.name.toLowerCase());
+    return cur && cur.level !== dc.level;
+  });
+}
+
+/** Pull win condition card names from a deck or its cards list */
+function getWinCards(deck) {
+  const wc = (deck.win_condition || "").toLowerCase();
+  return new Set((deck.cards || []).map(c => c.name.toLowerCase()).filter(n => wc.includes(n)));
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// DECK BUILDER MODAL
+// ══════════════════════════════════════════════════════════════════════════
+
+function openDeckBuilder(editId = null) {
+  state.builder.editingId = editId;
+
+  if (editId) {
+    const deck = state.savedDecks.find(d => d.id === editId);
+    if (!deck) return;
+    deckBuilderTitle.textContent = "Edit Deck";
+    deckNameInput.value = deck.name;
+    state.builder.slots = (deck.cards || []).map(c => ({ ...c }));
+    // Pad to 8 if needed
+    while (state.builder.slots.length < 8) state.builder.slots.push(null);
+  } else {
+    deckBuilderTitle.textContent = "Build a Deck";
+    deckNameInput.value = "";
+    state.builder.slots = Array(8).fill(null);
+  }
+
+  deckBuilderError.classList.add("hidden");
+  renderSlots();
+  deckBuilderModal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  setTimeout(() => deckNameInput.focus(), 100);
+}
+
+function closeDeckBuilder() {
+  deckBuilderModal.classList.add("hidden");
+  document.body.style.overflow = "";
+  hideSlotPicker();
+  state.builder.activeSlot = null;
+}
+
+function renderSlots() {
+  cardSlotsEl.innerHTML = "";
+  const filled = state.builder.slots.filter(Boolean).length;
+  slotCountLabel.textContent = `(${filled} / 8)`;
+  deckBuilderSave.disabled = filled < 8 || !deckNameInput.value.trim();
+
+  state.builder.slots.forEach((card, i) => {
+    const slot = document.createElement("div");
+    slot.className = `card-slot${card ? " filled" : ""}${state.builder.activeSlot === i ? " is-picking" : ""}`;
+    slot.dataset.idx = i;
+
+    if (card) {
+      slot.innerHTML = `
+        <span class="card-slot-name">${escapeHtml(card.name)}</span>
+        <span class="card-slot-level">Lvl ${card.level}</span>
+        <button class="card-slot-remove" data-idx="${i}" title="Remove">&times;</button>
+      `;
+      slot.querySelector(".card-slot-remove").addEventListener("click", e => {
+        e.stopPropagation();
+        state.builder.slots[i] = null;
+        renderSlots();
+      });
+    } else {
+      slot.innerHTML = `<span class="card-slot-placeholder">+ Pick a card</span>`;
+    }
+
+    slot.addEventListener("click", e => {
+      if (e.target.classList.contains("card-slot-remove")) return;
+      toggleSlotPicker(i, slot);
+    });
+
+    cardSlotsEl.appendChild(slot);
+  });
+
+  // Update save button when name changes
+  deckNameInput.onkeyup = () => {
+    const filled = state.builder.slots.filter(Boolean).length;
+    deckBuilderSave.disabled = filled < 8 || !deckNameInput.value.trim();
+  };
+}
+
+function toggleSlotPicker(slotIdx, slotEl) {
+  if (state.builder.activeSlot === slotIdx) {
+    hideSlotPicker();
+    return;
+  }
+  state.builder.activeSlot = slotIdx;
+  renderSlots();
+
+  // Position the dropdown near the slot
+  const rect = slotEl.getBoundingClientRect();
+  slotPickerDropdown.style.top = `${rect.bottom + window.scrollY + 4}px`;
+  slotPickerDropdown.style.left = `${rect.left + window.scrollX}px`;
+  slotPickerDropdown.classList.remove("hidden");
+  slotPickerSearch.value = "";
+  renderSlotPickerList();
+  setTimeout(() => slotPickerSearch.focus(), 50);
+}
+
+function hideSlotPicker() {
+  slotPickerDropdown.classList.add("hidden");
+  if (state.builder.activeSlot !== null) {
+    state.builder.activeSlot = null;
+    renderSlots();
+  }
+}
+
+function renderSlotPickerList() {
+  const q = slotPickerSearch.value.trim().toLowerCase();
+  const inDeck = new Set(state.builder.slots.filter(Boolean).map(c => c.name.toLowerCase()));
+
+  // Show all collection cards filtered by query, with in-deck ones dimmed
+  const cards = state.collection.filter(c => !q || c.name.toLowerCase().includes(q));
+
+  slotPickerList.innerHTML = "";
+  if (!cards.length) {
+    slotPickerList.innerHTML = '<li style="color:var(--text-muted);cursor:default">No cards match — add cards to your collection first</li>';
+    return;
+  }
+
+  cards.forEach(card => {
+    const inUse = inDeck.has(card.name.toLowerCase());
+    const li = document.createElement("li");
+    li.className = inUse ? "in-deck" : "";
+    li.innerHTML = `
+      <span>${escapeHtml(card.name)}</span>
+      <span class="slot-picker-level">Lvl ${card.level}</span>
+    `;
+    if (!inUse) {
+      li.addEventListener("click", () => {
+        state.builder.slots[state.builder.activeSlot] = { name: card.name, level: card.level, maxLevel: card.maxLevel };
+        hideSlotPicker();
+        renderSlots();
+      });
+    }
+    slotPickerList.appendChild(li);
+  });
+}
+
+let slotPickerFocusIdx = -1;
+function onSlotPickerKeydown(e) {
+  const items = [...slotPickerList.querySelectorAll("li:not(.in-deck)")];
+  if (e.key === "ArrowDown") { e.preventDefault(); slotPickerFocusIdx = Math.min(slotPickerFocusIdx + 1, items.length - 1); items.forEach((li, i) => li.classList.toggle("focused", i === slotPickerFocusIdx)); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); slotPickerFocusIdx = Math.max(slotPickerFocusIdx - 1, 0); items.forEach((li, i) => li.classList.toggle("focused", i === slotPickerFocusIdx)); }
+  else if (e.key === "Enter" && slotPickerFocusIdx >= 0 && items[slotPickerFocusIdx]) { items[slotPickerFocusIdx].click(); }
+  else if (e.key === "Escape") { hideSlotPicker(); }
+}
+
+async function saveDeckFromBuilder() {
+  const name = deckNameInput.value.trim();
+  if (!name) { showBuilderError("Please enter a deck name."); return; }
+
+  const cards = state.builder.slots.filter(Boolean);
+  if (cards.length !== 8) { showBuilderError("You must fill all 8 card slots."); return; }
+
+  const names = cards.map(c => c.name.toLowerCase());
+  if (new Set(names).size !== 8) { showBuilderError("Deck contains duplicate cards."); return; }
+
+  deckBuilderSave.disabled = true;
+  deckBuilderError.classList.add("hidden");
+
+  try {
+    if (state.builder.editingId) {
+      // Update existing
+      const res = await fetch(`/api/saved-decks/${state.builder.editingId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, cards }),
+      });
+      const data = await res.json();
+      if (data.error) { showBuilderError(data.error); return; }
+    } else {
+      // Create new
+      const res = await fetch("/api/saved-decks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, cards, source: "manual" }),
+      });
+      const data = await res.json();
+      if (data.error) { showBuilderError(data.error); return; }
+    }
+
+    await loadSavedDecks();
+    closeDeckBuilder();
+  } catch (err) {
+    showBuilderError(`Network error: ${err.message}`);
+  } finally {
+    deckBuilderSave.disabled = false;
+  }
+}
+
+function showBuilderError(msg) {
+  deckBuilderError.textContent = msg;
+  deckBuilderError.classList.remove("hidden");
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// SAVED DECK DETAIL MODAL
+// ══════════════════════════════════════════════════════════════════════════
+
+async function openDetailModal(deckId) {
+  const deck = state.savedDecks.find(d => d.id === deckId);
+  if (!deck) return;
+
+  state.detail.deckId = deckId;
+  state.detail.deckData = deck;
+  state.detail.analysis = null;
+
+  // Header
+  detailDeckName.textContent = deck.name;
+  detailSourceLabel.textContent = deck.source === "recommendation" ? "💡 Saved from AI recommendation" : "🔧 Manually built deck";
+  detailMetaTags.innerHTML = "";
+
+  // Reset analysis panels
+  analysisEmpty.style.display = "";
+  analysisLoading.classList.remove("visible");
+  analysisResult.classList.add("hidden");
+  analysisResult.innerHTML = "";
+
+  // Reset chat
+  detailChatMsgs.innerHTML = `<div class="chat-welcome" id="detail-chat-welcome"><p>💬 Ask me anything about this deck — card swaps, matchups, playstyle adjustments, or how to improve your win rate.</p></div>`;
+
+  // Render deck cards
+  renderDetailCards(deck);
+
+  // Check staleness
+  const stale = isDeckStale(deck);
+  detailStaleWarn.classList.toggle("hidden", !stale);
+
+  // Open modal
+  deckDetailModal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+
+  // Load existing analysis and chat in parallel
+  try {
+    const [analysisRes, chatRes] = await Promise.all([
+      fetch(`/api/saved-decks/${deckId}/analysis`),
+      fetch(`/api/saved-decks/${deckId}/chat`),
+    ]);
+    const analysisData = await analysisRes.json();
+    const chatData = await chatRes.json();
+
+    if (analysisData && analysisData.analysis) {
+      state.detail.analysis = analysisData.analysis;
+      showAnalysisResult(analysisData.analysis, analysisData.collection_snapshot);
+      updateDetailMetaTags(analysisData.analysis);
+    }
+
+    if (chatData.messages && chatData.messages.length) {
+      detailChatMsgs.innerHTML = "";
+      chatData.messages.forEach(m => appendDetailChatMsg(m.role, m.content, m.created_at));
+    }
+  } catch { /* ignore */ }
+}
+
+function closeDetailModal() {
+  deckDetailModal.classList.add("hidden");
+  document.body.style.overflow = "";
+  state.detail.deckId = null;
+  state.detail.deckData = null;
+  state.detail.analysis = null;
+}
+
+function renderDetailCards(deck) {
+  detailCardsDisp.innerHTML = "";
+  const winCards = getWinCards(deck);
+
+  (deck.cards || []).forEach(card => {
+    const curCard = state.collection.find(c => c.name.toLowerCase() === card.name.toLowerCase());
+    const levelChanged = curCard && curCard.level !== card.level;
+    const isWin = winCards.has(card.name.toLowerCase());
+
+    const chip = document.createElement("div");
+    chip.className = `detail-card-chip${isWin ? " win-con" : ""}${levelChanged ? " stale-level" : ""}`;
+    chip.innerHTML = `${escapeHtml(card.name)} <span class="chip-lv">${levelChanged ? `Lvl ${card.level} → ${curCard.level}` : `Lvl ${card.level}`}</span>`;
+    detailCardsDisp.appendChild(chip);
+  });
+}
+
+function updateDetailMetaTags(analysis) {
+  detailMetaTags.innerHTML = "";
+  if (analysis.tier) {
+    const t = document.createElement("span");
+    t.className = `tag tag-tier-${analysis.tier}`;
+    t.textContent = `Tier ${analysis.tier}`;
+    detailMetaTags.appendChild(t);
+  }
+  if (analysis.archetype) {
+    const a = document.createElement("span");
+    a.className = "tag tag-archetype";
+    a.textContent = analysis.archetype;
+    detailMetaTags.appendChild(a);
+  }
+  if (analysis.average_elixir) {
+    const e = document.createElement("span");
+    e.className = "tag tag-elixir";
+    e.textContent = `⚡ ${analysis.average_elixir}`;
+    detailMetaTags.appendChild(e);
+  }
+}
+
+async function deleteSavedDeck() {
+  if (!state.detail.deckId) return;
+  if (!confirm(`Delete "${state.detail.deckData?.name}"? This cannot be undone.`)) return;
+  try {
+    await fetch(`/api/saved-decks/${state.detail.deckId}`, { method: "DELETE" });
+    closeDetailModal();
+    await loadSavedDecks();
+  } catch { /* ignore */ }
+}
+
+async function updateDeckLevels() {
+  if (!state.detail.deckId || !state.detail.deckData) return;
+  const deck = state.detail.deckData;
+
+  // Replace each card's level with the current collection level
+  const updatedCards = (deck.cards || []).map(card => {
+    const cur = state.collection.find(c => c.name.toLowerCase() === card.name.toLowerCase());
+    return cur ? { ...card, level: cur.level, maxLevel: cur.maxLevel } : card;
+  });
+
+  try {
+    const res = await fetch(`/api/saved-decks/${state.detail.deckId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cards: updatedCards }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      // Updating cards also clears analysis on backend — reflect here
+      state.detail.analysis = null;
+      await loadSavedDecks();
+      // Reload detail with refreshed deck data
+      closeDetailModal();
+      await openDetailModal(state.detail.deckId || deck.id);
+    }
+  } catch { /* ignore */ }
+}
+
+
+// ── Analysis ───────────────────────────────────────────────────────────────
+
+async function runDeckAnalysis() {
+  if (!state.detail.deckId || state.detail.analysisStreaming) return;
+  if (!state.collection.length) {
+    alert("Please add your card collection first so the AI can suggest swaps.");
+    return;
+  }
+
+  state.detail.analysisStreaming = true;
+  analysisEmpty.style.display = "none";
+  analysisResult.classList.add("hidden");
+  analysisResult.innerHTML = "";
+  analysisLoading.classList.add("visible");
+  analysisStatusMsg.textContent = "Searching current meta...";
+
+  let accumulated = "";
+  try {
+    const res = await fetch(`/api/saved-decks/${state.detail.deckId}/analysis`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ collection: state.collection }),
+    });
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          const msg = JSON.parse(line.slice(6));
+          if (msg.error) { showAnalysisError(msg.error); return; }
+          if (msg.chunk) {
+            accumulated += msg.chunk;
+            updateAnalysisStatusMsg(accumulated);
+          }
+          if (msg.done && msg.analysis) {
+            state.detail.analysis = msg.analysis;
+            analysisLoading.classList.remove("visible");
+            showAnalysisResult(msg.analysis, state.collection);
+            updateDetailMetaTags(msg.analysis);
+            return;
+          }
+          if (msg.done) {
+            // Parse manually as fallback
+            const j0 = accumulated.indexOf("{"), j1 = accumulated.lastIndexOf("}");
+            if (j0 !== -1 && j1 !== -1) {
+              try {
+                const parsed = JSON.parse(accumulated.slice(j0, j1 + 1));
+                state.detail.analysis = parsed;
+                analysisLoading.classList.remove("visible");
+                showAnalysisResult(parsed, state.collection);
+                updateDetailMetaTags(parsed);
+              } catch { showAnalysisError("Could not parse analysis response."); }
+            }
+            return;
+          }
+        } catch { /* ignore */ }
+      }
+    }
+  } catch (err) {
+    showAnalysisError(`Connection error: ${err.message}`);
+  } finally {
+    state.detail.analysisStreaming = false;
+    analysisLoading.classList.remove("visible");
+  }
+}
+
+function updateAnalysisStatusMsg(text) {
+  if (text.includes('"tier"')) analysisStatusMsg.textContent = "Evaluating deck strength...";
+  else if (text.includes('"suggested_swaps"')) analysisStatusMsg.textContent = "Finding improvement swaps...";
+  else if (text.includes('"coaching"')) analysisStatusMsg.textContent = "Writing coaching advice...";
+}
+
+function showAnalysisError(msg) {
+  analysisLoading.classList.remove("visible");
+  analysisEmpty.style.display = "";
+  analysisEmpty.innerHTML = `<p style="color:#f85149">${escapeHtml(msg)}</p><button id="run-analysis-btn" class="btn btn-primary">Retry Analysis</button>`;
+  $("run-analysis-btn").addEventListener("click", runDeckAnalysis);
+}
+
+function showAnalysisResult(a, collectionSnapshot) {
+  analysisEmpty.style.display = "none";
+  analysisLoading.classList.remove("visible");
+
+  const collectionNames = new Set((collectionSnapshot || state.collection).map(c => c.name.toLowerCase()));
+
+  const tierColors = { S: "tag-tier-S", A: "tag-tier-A", B: "tag-tier-B", C: "tag-tier-C", D: "tag-tier-D" };
+  const tierClass = tierColors[a.tier] || "tag-tier-B";
+
+  const strengthsHtml = (a.strengths || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
+  const weaknessesHtml = (a.weaknesses || []).map(w => `<li>${escapeHtml(w)}</li>`).join("");
+
+  const swapsHtml = (a.suggested_swaps || []).map(swap => {
+    const available = swap.in_collection !== false && collectionNames.has((swap.add || "").toLowerCase());
+    return `
+      <div class="swap-item">
+        <div class="swap-cards">
+          <span class="swap-remove">${escapeHtml(swap.remove || "")}</span>
+          <span class="swap-arrow">→</span>
+          <span class="swap-add">${escapeHtml(swap.add || "")}</span>
+          <span class="${available ? "swap-available" : "swap-unavailable"}">${available ? "✓ in collection" : "✗ not in collection"}</span>
+        </div>
+        <div class="swap-reason">${escapeHtml(swap.reason || "")}</div>
+      </div>`;
+  }).join("");
+
+  const matchups = a.matchups || {};
+  const matchupFav   = (matchups.favorable || []).map(m => `<li>${escapeHtml(m)}</li>`).join("");
+  const matchupUnfav = (matchups.unfavorable || []).map(m => `<li>${escapeHtml(m)}</li>`).join("");
+  const matchupNeu   = (matchups.neutral || []).map(m => `<li>${escapeHtml(m)}</li>`).join("");
+
+  analysisResult.innerHTML = `
+    <div class="analysis-top-bar">
+      <div class="tier-badge ${tierClass}">${escapeHtml(a.tier || "?")}</div>
+      <div>
+        <div class="analysis-viability">${escapeHtml(a.meta_viability || "")}</div>
+        <div class="analysis-tier-expl">${escapeHtml(a.tier_explanation || "")}</div>
+      </div>
+    </div>
+
+    ${(strengthsHtml || weaknessesHtml) ? `
+    <div class="analysis-grid">
+      ${strengthsHtml ? `<div class="analysis-box strengths"><h5>Strengths</h5><ul>${strengthsHtml}</ul></div>` : ""}
+      ${weaknessesHtml ? `<div class="analysis-box weaknesses"><h5>Weaknesses</h5><ul>${weaknessesHtml}</ul></div>` : ""}
+    </div>` : ""}
+
+    ${swapsHtml ? `
+    <div>
+      <div class="analysis-section-label">Suggested Swaps from Your Collection</div>
+      ${swapsHtml}
+    </div>` : ""}
+
+    ${(matchupFav || matchupUnfav || matchupNeu) ? `
+    <div>
+      <div class="analysis-section-label">Matchup Overview</div>
+      <div class="matchup-grid">
+        <div class="matchup-box favorable"><h5>Favorable</h5><ul>${matchupFav || "<li>—</li>"}</ul></div>
+        <div class="matchup-box unfavorable"><h5>Unfavorable</h5><ul>${matchupUnfav || "<li>—</li>"}</ul></div>
+        <div class="matchup-box neutral"><h5>Neutral</h5><ul>${matchupNeu || "<li>—</li>"}</ul></div>
+      </div>
+    </div>` : ""}
+
+    ${a.coaching ? `
+    <div>
+      <div class="analysis-section-label">Coaching Advice</div>
+      <div class="coaching-text">${escapeHtml(a.coaching)}</div>
+    </div>` : ""}
+  `;
+
+  analysisResult.classList.remove("hidden");
+}
+
+
+// ── Fine-Tune Chat ─────────────────────────────────────────────────────────
+
+async function sendDetailChatMessage() {
+  if (state.detail.chatStreaming) return;
+  const message = detailChatInput.value.trim();
+  if (!message || !state.detail.deckId) return;
+
+  detailChatInput.value = "";
+  detailChatInput.disabled = true;
+  detailChatSend.disabled = true;
+
+  const welcome = detailChatMsgs.querySelector(".chat-welcome");
+  if (welcome) welcome.remove();
+  appendDetailChatMsg("user", message);
+
+  const typing = createTypingIndicator();
+  detailChatMsgs.appendChild(typing);
+  scrollEl(detailChatMsgs);
+
+  state.detail.chatStreaming = true;
+
+  try {
+    const res = await fetch(`/api/saved-decks/${state.detail.deckId}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, collection: state.collection }),
+    });
+
+    if (!res.ok) { typing.remove(); const e = await res.json(); appendDetailChatMsg("assistant", `Error: ${e.error}`); return; }
+
+    typing.remove();
+    const msgEl = createStreamingBubble();
+    detailChatMsgs.appendChild(msgEl);
+    const bubble = msgEl.querySelector(".chat-bubble");
+    scrollEl(detailChatMsgs);
+
+    let fullText = "";
+    await streamSSE(res, (chunk) => { fullText += chunk; bubble.textContent = fullText; scrollEl(detailChatMsgs); });
+
+    bubble.classList.remove("streaming");
+    addTimestamp(msgEl);
+  } catch (err) {
+    typing.remove();
+    appendDetailChatMsg("assistant", `Connection error: ${err.message}`);
+  } finally {
+    state.detail.chatStreaming = false;
+    detailChatInput.disabled = false;
+    detailChatSend.disabled = false;
+    detailChatInput.focus();
+  }
+}
+
+function appendDetailChatMsg(role, content, timestamp = null) {
+  const welcome = detailChatMsgs.querySelector(".chat-welcome");
+  if (welcome) welcome.remove();
+  const el = buildChatMessage(role, content, timestamp);
+  detailChatMsgs.appendChild(el);
+  scrollEl(detailChatMsgs);
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// GENERATE / RECOMMENDATIONS
+// ══════════════════════════════════════════════════════════════════════════
+
 async function generateDecks() {
   generateBtn.disabled = true;
   resultsSection.classList.remove("hidden");
@@ -312,11 +1003,9 @@ async function generateDecks() {
 
   streamStatus.classList.add("visible");
   streamMsg.textContent = "Searching for current meta information...";
-
-  setTimeout(() => resultsSection.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+  setTimeout(() => resultsSection.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
 
   let accumulated = "";
-
   try {
     const res = await fetch("/api/analyze", {
       method: "POST",
@@ -330,46 +1019,22 @@ async function generateDecks() {
       return;
     }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop();
-
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const payload = line.slice(6);
-        try {
-          const msg = JSON.parse(payload);
-
-          if (msg.error) { showStreamError(msg.error); return; }
-
-          if (msg.done) {
-            if (msg.deck_ids) state.deckIds = msg.deck_ids;
-            const ok = tryRenderDecks(accumulated, msg.deck_ids || []);
-            if (!ok) showStreamError("Failed to parse AI response. Please try again.");
-            return;
-          }
-
-          if (msg.chunk) {
-            accumulated += msg.chunk;
-            updateStreamStatus(accumulated);
-          }
-        } catch { /* ignore malformed SSE */ }
+    await streamSSE(res,
+      (chunk) => { accumulated += chunk; updateStreamStatus(accumulated); },
+      (msg) => {
+        if (msg.done) {
+          if (msg.deck_ids) state.deckIds = msg.deck_ids;
+          const ok = tryRenderDecks(accumulated, state.deckIds);
+          if (!ok) showStreamError("Failed to parse AI response. Please try again.");
+        }
       }
-    }
+    );
   } catch (err) {
     showStreamError(`Connection error: ${err.message}`);
   } finally {
     streamStatus.classList.remove("visible");
     generateBtn.disabled = state.collection.length < 8;
-    // Refresh history list if it's open
+    // Refresh history if open
     if (!historyList.classList.contains("hidden")) loadHistory();
   }
 }
@@ -382,157 +1047,220 @@ function updateStreamStatus(text) {
 
 function showStreamError(msg) {
   streamStatus.classList.remove("visible");
-  decksContainer.innerHTML = `
-    <div class="status-msg error" style="display:block">
-      <strong>Error:</strong> ${escapeHtml(msg)}
-    </div>
-  `;
+  decksContainer.innerHTML = `<div class="status-msg error" style="display:block"><strong>Error:</strong> ${escapeHtml(msg)}</div>`;
 }
 
-// ── Parse & render decks ───────────────────────────────────────────────────
 function tryRenderDecks(text, deckIds = []) {
-  const jsonStart = text.indexOf("{");
-  const jsonEnd   = text.lastIndexOf("}");
-  if (jsonStart === -1 || jsonEnd === -1) return false;
-
+  const j0 = text.indexOf("{"), j1 = text.lastIndexOf("}");
+  if (j0 === -1 || j1 === -1) return false;
   let parsed;
-  try { parsed = JSON.parse(text.slice(jsonStart, jsonEnd + 1)); }
-  catch { return false; }
-
-  if (parsed.meta_context) {
-    metaContext.textContent = `Meta snapshot: ${parsed.meta_context}`;
-  }
-
-  (parsed.decks || []).forEach((deck, i) => {
-    const deckId = deckIds[i] ?? null;
-    decksContainer.appendChild(buildDeckCard(deck, i, deckId));
-  });
-
+  try { parsed = JSON.parse(text.slice(j0, j1 + 1)); } catch { return false; }
+  if (parsed.meta_context) metaContext.textContent = `Meta snapshot: ${parsed.meta_context}`;
+  (parsed.decks || []).forEach((deck, i) => decksContainer.appendChild(buildRecDeckCard(deck, i, deckIds[i] ?? null)));
   return true;
 }
 
-function buildDeckCard(deck, idx, deckId = null) {
+function buildRecDeckCard(deck, idx, deckId = null) {
   const winCards = (deck.win_condition || "").toLowerCase().split(/[,/&]+/).map(s => s.trim());
-
-  const cardItems = (deck.cards || []).map(name => {
+  const cardItemsHtml = (deck.cards || []).map(name => {
     const owned = state.collection.find(c => c.name.toLowerCase() === name.toLowerCase());
-    const level = owned ? `Lvl ${owned.level}` : "";
+    const level = owned ? `<span class="item-level">Lvl ${owned.level}</span>` : "";
     const isWin = winCards.some(w => name.toLowerCase().includes(w) || w.includes(name.toLowerCase()));
-    return `<div class="deck-card-item ${isWin ? "is-win-condition" : ""}">
-      ${escapeHtml(name)}${level ? `<span class="item-level">${level}</span>` : ""}
-    </div>`;
+    return `<div class="deck-card-item${isWin ? " is-win-condition" : ""}">${escapeHtml(name)}${level}</div>`;
   }).join("");
 
   const difficulty = deck.difficulty || "Intermediate";
-  const strategy   = deck.strategy || {};
-  const synergies  = (strategy.key_synergies || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
-  const matchups   = (strategy.matchup_tips || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
-
-  const discussAttrs = deckId
-    ? `data-deck-id="${deckId}" data-deck-name="${escapeHtml(deck.name || "")}" data-deck-archetype="${escapeHtml(deck.archetype || "")}"`
-    : `disabled title="Save a deck first to enable chat"`;
+  const strategy = deck.strategy || {};
+  const synergies = (strategy.key_synergies || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
+  const matchups  = (strategy.matchup_tips  || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
 
   const el = document.createElement("article");
   el.className = "deck-card";
-  el.style.animationDelay = `${idx * 0.12}s`;
+  el.style.animationDelay = `${idx * 0.1}s`;
   el.innerHTML = `
     <div class="deck-header">
       <div class="deck-title-group">
         <div class="deck-name">${escapeHtml(deck.name || `Deck ${idx + 1}`)}</div>
         <div class="deck-meta">
           ${deck.archetype ? `<span class="tag tag-archetype">${escapeHtml(deck.archetype)}</span>` : ""}
-          ${deck.average_elixir ? `<span class="tag tag-elixir">⚡ ${deck.average_elixir} avg elixir</span>` : ""}
+          ${deck.average_elixir ? `<span class="tag tag-elixir">⚡ ${deck.average_elixir}</span>` : ""}
           <span class="tag tag-difficulty-${difficulty}">${difficulty}</span>
         </div>
       </div>
       <div class="deck-header-right">
         ${deck.win_condition ? `<div class="deck-win-condition">Win: <strong>${escapeHtml(deck.win_condition)}</strong></div>` : ""}
-        <button class="btn btn-discuss discuss-btn" ${discussAttrs}>
-          💬 Discuss
-        </button>
+        <button class="btn btn-save-deck save-rec-btn" data-idx="${idx}" ${!deckId ? "disabled" : ""}>⭐ Save</button>
+        <button class="btn btn-discuss discuss-btn" ${deckId ? `data-deck-id="${deckId}"` : "disabled"}>💬 Discuss</button>
       </div>
     </div>
-
-    <div class="deck-cards">${cardItems}</div>
-
+    <div class="deck-cards-row">${cardItemsHtml}</div>
     <div class="deck-body">
       ${deck.description ? `<p class="deck-description">${escapeHtml(deck.description)}</p>` : ""}
-
       <div class="strategy-grid">
-        ${strategy.general ? `
-          <div class="strategy-box full-width">
-            <h4>General Gameplan</h4>
-            <p>${escapeHtml(strategy.general)}</p>
-          </div>` : ""}
-        ${strategy.offense ? `
-          <div class="strategy-box">
-            <h4>Offense</h4>
-            <p>${escapeHtml(strategy.offense)}</p>
-          </div>` : ""}
-        ${strategy.defense ? `
-          <div class="strategy-box">
-            <h4>Defense</h4>
-            <p>${escapeHtml(strategy.defense)}</p>
-          </div>` : ""}
-        ${synergies ? `
-          <div class="strategy-box">
-            <h4>Key Synergies</h4>
-            <ul>${synergies}</ul>
-          </div>` : ""}
-        ${matchups ? `
-          <div class="strategy-box">
-            <h4>Matchup Tips</h4>
-            <ul>${matchups}</ul>
-          </div>` : ""}
+        ${strategy.general ? `<div class="strategy-box full-width"><h4>General Gameplan</h4><p>${escapeHtml(strategy.general)}</p></div>` : ""}
+        ${strategy.offense ? `<div class="strategy-box"><h4>Offense</h4><p>${escapeHtml(strategy.offense)}</p></div>` : ""}
+        ${strategy.defense ? `<div class="strategy-box"><h4>Defense</h4><p>${escapeHtml(strategy.defense)}</p></div>` : ""}
+        ${synergies ? `<div class="strategy-box"><h4>Key Synergies</h4><ul>${synergies}</ul></div>` : ""}
+        ${matchups  ? `<div class="strategy-box"><h4>Matchup Tips</h4><ul>${matchups}</ul></div>`  : ""}
       </div>
-
-      ${deck.level_notes ? `
-        <div class="level-notes">
-          <strong>Level Notes:</strong> ${escapeHtml(deck.level_notes)}
-        </div>` : ""}
+      ${deck.level_notes ? `<div class="level-notes"><strong>Level Notes:</strong> ${escapeHtml(deck.level_notes)}</div>` : ""}
     </div>
   `;
 
-  // Wire up the Discuss button
+  // Save button
+  const saveBtn = el.querySelector(".save-rec-btn");
+  if (deckId && saveBtn) {
+    saveBtn.addEventListener("click", async () => {
+      if (saveBtn.classList.contains("saved")) return;
+      // Build cards array from collection levels
+      const cards = (deck.cards || []).map(name => {
+        const owned = state.collection.find(c => c.name.toLowerCase() === name.toLowerCase());
+        return owned ? { name: owned.name, level: owned.level, maxLevel: owned.maxLevel } : { name, level: 1, maxLevel: 14 };
+      });
+      if (cards.length !== 8) return;
+      try {
+        const res = await fetch("/api/saved-decks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: deck.name || `Saved Deck ${idx + 1}`, cards, source: "recommendation" }),
+        });
+        const data = await res.json();
+        if (!data.error) {
+          saveBtn.textContent = "✓ Saved";
+          saveBtn.classList.add("saved");
+          await loadSavedDecks();
+        }
+      } catch { /* ignore */ }
+    });
+  }
+
+  // Discuss button
   const discussBtn = el.querySelector(".discuss-btn");
   if (deckId && discussBtn) {
-    discussBtn.addEventListener("click", () => openChat(deckId, deck));
+    discussBtn.addEventListener("click", () => openRecChat(deckId, deck));
   }
 
   return el;
 }
 
-// ── History ────────────────────────────────────────────────────────────────
+
+// ══════════════════════════════════════════════════════════════════════════
+// RECOMMENDATION CHAT
+// ══════════════════════════════════════════════════════════════════════════
+
+async function openRecChat(deckId, deckData) {
+  state.recChat.deckId = deckId;
+  state.recChat.deckData = deckData;
+  chatDeckTitle.textContent = deckData.name || "Deck Strategy";
+  chatPanelContext.textContent = [
+    deckData.archetype,
+    deckData.average_elixir ? `⚡ ${deckData.average_elixir}` : null,
+    deckData.win_condition ? `Win: ${deckData.win_condition}` : null,
+  ].filter(Boolean).join("  ·  ");
+
+  chatMessages.innerHTML = `<div class="chat-welcome"><p>👋 Ask me anything about this deck!</p></div>`;
+
+  try {
+    const res = await fetch(`/api/decks/${deckId}/chat`);
+    const data = await res.json();
+    if (data.messages && data.messages.length) {
+      chatMessages.innerHTML = "";
+      data.messages.forEach(m => appendRecChatMsg(m.role, m.content, m.created_at));
+    }
+  } catch { /* ignore */ }
+
+  chatModal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  setTimeout(() => chatInput.focus(), 150);
+  scrollEl(chatMessages);
+}
+
+function closeRecChat() {
+  chatModal.classList.add("hidden");
+  document.body.style.overflow = "";
+}
+
+async function sendRecChatMessage() {
+  if (state.recChat.streaming) return;
+  const message = chatInput.value.trim();
+  if (!message || !state.recChat.deckId) return;
+
+  chatInput.value = "";
+  chatInput.disabled = true;
+  chatSendBtn.disabled = true;
+
+  const welcome = chatMessages.querySelector(".chat-welcome");
+  if (welcome) welcome.remove();
+  appendRecChatMsg("user", message);
+
+  const typing = createTypingIndicator();
+  chatMessages.appendChild(typing);
+  scrollEl(chatMessages);
+
+  state.recChat.streaming = true;
+  try {
+    const res = await fetch(`/api/decks/${state.recChat.deckId}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
+
+    if (!res.ok) { typing.remove(); const e = await res.json(); appendRecChatMsg("assistant", `Error: ${e.error}`); return; }
+
+    typing.remove();
+    const msgEl = createStreamingBubble();
+    chatMessages.appendChild(msgEl);
+    const bubble = msgEl.querySelector(".chat-bubble");
+    scrollEl(chatMessages);
+
+    let fullText = "";
+    await streamSSE(res, chunk => { fullText += chunk; bubble.textContent = fullText; scrollEl(chatMessages); });
+    bubble.classList.remove("streaming");
+    addTimestamp(msgEl);
+  } catch (err) {
+    typing.remove();
+    appendRecChatMsg("assistant", `Connection error: ${err.message}`);
+  } finally {
+    state.recChat.streaming = false;
+    chatInput.disabled = false;
+    chatSendBtn.disabled = false;
+    chatInput.focus();
+  }
+}
+
+function appendRecChatMsg(role, content, timestamp = null) {
+  const welcome = chatMessages.querySelector(".chat-welcome");
+  if (welcome) welcome.remove();
+  chatMessages.appendChild(buildChatMessage(role, content, timestamp));
+  scrollEl(chatMessages);
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// HISTORY
+// ══════════════════════════════════════════════════════════════════════════
+
 let historyLoaded = false;
 
 async function toggleHistory() {
-  const isHidden = historyList.classList.contains("hidden");
-  historyList.classList.toggle("hidden", !isHidden);
-  historyToggleBtn.textContent = isHidden ? "Hide" : "Show";
-  if (isHidden && !historyLoaded) await loadHistory();
+  const hidden = historyList.classList.contains("hidden");
+  historyList.classList.toggle("hidden", !hidden);
+  historyToggleBtn.textContent = hidden ? "Hide" : "Show";
+  if (hidden && !historyLoaded) await loadHistory();
 }
 
 async function loadHistory() {
   historyLoading.classList.remove("hidden");
   historyEmpty.classList.add("hidden");
   historyItems.innerHTML = "";
-
   try {
     const res = await fetch("/api/sessions");
     const data = await res.json();
-    const sessions = data.sessions || [];
-
     historyLoaded = true;
     historyLoading.classList.add("hidden");
-
-    if (!sessions.length) {
-      historyEmpty.classList.remove("hidden");
-      return;
-    }
-
-    sessions.forEach(session => {
-      historyItems.appendChild(buildHistoryItem(session));
-    });
+    const sessions = data.sessions || [];
+    if (!sessions.length) { historyEmpty.classList.remove("hidden"); return; }
+    sessions.forEach(s => historyItems.appendChild(buildHistoryItem(s)));
   } catch {
     historyLoading.classList.add("hidden");
     historyEmpty.classList.remove("hidden");
@@ -541,254 +1269,163 @@ async function loadHistory() {
 }
 
 function buildHistoryItem(session) {
+  // Staleness: compare session's stored card levels vs current collection
+  const sessionCards = JSON.parse(session.cards_json || "[]");
+  const stale = sessionCards.some(sc => {
+    const cur = state.collection.find(c => c.name.toLowerCase() === sc.name.toLowerCase());
+    return cur && cur.level !== sc.level;
+  });
+
   const date = new Date(session.created_at + "Z");
   const dateStr = date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
   const timeStr = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 
   const el = document.createElement("div");
-  el.className = "history-item";
+  el.className = `history-item${stale ? " is-stale" : ""}`;
   el.dataset.sessionId = session.id;
 
   const meta = session.meta_context
-    ? session.meta_context.slice(0, 80) + (session.meta_context.length > 80 ? "…" : "")
-    : `${session.deck_count} deck${session.deck_count !== 1 ? "s" : ""} generated`;
+    ? session.meta_context.slice(0, 90) + (session.meta_context.length > 90 ? "…" : "")
+    : `${session.deck_count} deck${session.deck_count !== 1 ? "s" : ""}`;
 
   el.innerHTML = `
     <div class="history-item-header">
       <span class="history-item-date">${dateStr} ${timeStr}</span>
       <span class="history-item-meta">${escapeHtml(meta)}</span>
+      ${stale ? '<span class="tag tag-stale">⚠ Stale</span>' : ""}
       <span class="history-chevron">▼</span>
     </div>
     <div class="history-item-decks" id="session-decks-${session.id}">
-      <div class="history-empty" style="padding:12px">
-        <div class="spinner"></div> Loading decks...
-      </div>
+      <div class="history-empty"><div class="spinner"></div> Loading...</div>
     </div>
   `;
-
-  el.querySelector(".history-item-header").addEventListener("click", () =>
-    toggleHistoryItem(el, session.id)
-  );
-
+  el.querySelector(".history-item-header").addEventListener("click", () => toggleHistoryItem(el, session.id));
   return el;
 }
 
 async function toggleHistoryItem(el, sessionId) {
   const wasExpanded = el.classList.contains("expanded");
   el.classList.toggle("expanded", !wasExpanded);
+  if (wasExpanded) return;
 
-  if (!wasExpanded) {
-    const deckContainer = el.querySelector(`#session-decks-${sessionId}`);
-    if (deckContainer.dataset.loaded) return;
-    deckContainer.dataset.loaded = "1";
+  const container = $(`session-decks-${sessionId}`);
+  if (container.dataset.loaded) return;
+  container.dataset.loaded = "1";
 
-    try {
-      const res = await fetch(`/api/sessions/${sessionId}`);
-      const data = await res.json();
-
-      deckContainer.innerHTML = "";
-      if (!data.decks || !data.decks.length) {
-        deckContainer.innerHTML = '<div class="history-empty">No decks found.</div>';
-        return;
-      }
-
-      data.decks.forEach(deckRow => {
-        const deck = deckRow.deck;
-        const row = document.createElement("div");
-        row.className = "history-deck-row";
-        row.innerHTML = `
-          <div class="history-deck-info">
-            <div class="history-deck-name">
-              ${escapeHtml(deck.name || "Deck")}
-              ${deck.archetype ? `<span class="tag tag-archetype" style="margin-left:6px">${escapeHtml(deck.archetype)}</span>` : ""}
-            </div>
-            <div class="history-deck-cards">${(deck.cards || []).join(", ")}</div>
-          </div>
-          <div class="history-deck-actions">
-            <button class="btn btn-discuss history-discuss-btn"
-              data-deck-id="${deckRow.id}">
-              💬 Discuss
-            </button>
-          </div>
-        `;
-        row.querySelector(".history-discuss-btn").addEventListener("click", () =>
-          openChat(deckRow.id, deck)
-        );
-        deckContainer.appendChild(row);
-      });
-    } catch {
-      deckContainer.innerHTML = '<div class="history-empty">Failed to load decks.</div>';
-    }
-  }
-}
-
-// ── Chat ───────────────────────────────────────────────────────────────────
-async function openChat(deckId, deckData) {
-  state.chat.deckId = deckId;
-  state.chat.deckData = deckData;
-
-  // Set header
-  chatDeckTitle.textContent = deckData.name || "Deck Strategy";
-  chatPanelContext.textContent = [
-    deckData.archetype,
-    deckData.average_elixir ? `⚡ ${deckData.average_elixir} elixir` : null,
-    deckData.win_condition ? `Win: ${deckData.win_condition}` : null,
-  ].filter(Boolean).join("  ·  ");
-
-  // Reset messages area
-  chatMessages.innerHTML = `
-    <div class="chat-welcome">
-      <p>👋 Ask me anything about this deck — matchups, placements, elixir management, counters, or how to improve your gameplay!</p>
-    </div>
-  `;
-
-  // Load existing chat history
   try {
-    const res = await fetch(`/api/decks/${deckId}/chat`);
+    const res = await fetch(`/api/sessions/${sessionId}`);
     const data = await res.json();
-    if (data.messages && data.messages.length) {
-      chatMessages.innerHTML = ""; // clear welcome if we have history
-      data.messages.forEach(msg => appendChatMessage(msg.role, msg.content, msg.created_at));
-    }
-  } catch { /* ignore, start fresh */ }
+    container.innerHTML = "";
+    if (!data.decks?.length) { container.innerHTML = '<div class="history-empty">No decks found.</div>'; return; }
 
-  chatModal.classList.remove("hidden");
-  document.body.style.overflow = "hidden";
-  setTimeout(() => chatInput.focus(), 200);
-  scrollChatToBottom();
-}
-
-function closeChat() {
-  chatModal.classList.add("hidden");
-  document.body.style.overflow = "";
-  state.chat.deckId = null;
-  state.chat.deckData = null;
-}
-
-async function sendChatMessage() {
-  if (state.chat.streaming) return;
-  const message = chatInput.value.trim();
-  if (!message || !state.chat.deckId) return;
-
-  chatInput.value = "";
-  chatInput.disabled = true;
-  chatSendBtn.disabled = true;
-
-  // Remove welcome message if present
-  const welcome = chatMessages.querySelector(".chat-welcome");
-  if (welcome) welcome.remove();
-
-  // Show user message immediately
-  appendChatMessage("user", message);
-
-  // Show typing indicator
-  const typing = document.createElement("div");
-  typing.className = "chat-typing";
-  typing.innerHTML = "<span></span><span></span><span></span>";
-  chatMessages.appendChild(typing);
-  scrollChatToBottom();
-
-  state.chat.streaming = true;
-
-  try {
-    const res = await fetch(`/api/decks/${state.chat.deckId}/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
+    data.decks.forEach(deckRow => {
+      const deck = deckRow.deck;
+      const row = document.createElement("div");
+      row.className = "history-deck-row";
+      row.innerHTML = `
+        <div class="history-deck-info">
+          <div class="history-deck-name">${escapeHtml(deck.name || "Deck")}${deck.archetype ? ` <span class="tag tag-archetype" style="margin-left:5px">${escapeHtml(deck.archetype)}</span>` : ""}</div>
+          <div class="history-deck-cards">${(deck.cards || []).join(", ")}</div>
+        </div>
+        <div class="history-deck-actions">
+          <button class="btn btn-discuss btn-sm hist-discuss-btn">💬 Discuss</button>
+        </div>
+      `;
+      row.querySelector(".hist-discuss-btn").addEventListener("click", () => openRecChat(deckRow.id, deck));
+      container.appendChild(row);
     });
-
-    if (!res.ok) {
-      typing.remove();
-      const err = await res.json();
-      appendChatMessage("assistant", `Error: ${err.error || "Request failed"}`);
-      return;
-    }
-
-    typing.remove();
-
-    // Create streaming assistant bubble
-    const msgEl = document.createElement("div");
-    msgEl.className = "chat-message assistant";
-    const bubble = document.createElement("div");
-    bubble.className = "chat-bubble streaming";
-    msgEl.appendChild(bubble);
-    chatMessages.appendChild(msgEl);
-    scrollChatToBottom();
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let fullText = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop();
-
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        try {
-          const msg = JSON.parse(line.slice(6));
-          if (msg.chunk) {
-            fullText += msg.chunk;
-            bubble.textContent = fullText;
-            scrollChatToBottom();
-          }
-          if (msg.done) {
-            bubble.classList.remove("streaming");
-            // Add timestamp
-            const time = document.createElement("div");
-            time.className = "chat-message-time";
-            time.textContent = new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-            msgEl.appendChild(time);
-          }
-        } catch { /* ignore */ }
-      }
-    }
-  } catch (err) {
-    typing.remove();
-    appendChatMessage("assistant", `Connection error: ${err.message}`);
-  } finally {
-    state.chat.streaming = false;
-    chatInput.disabled = false;
-    chatSendBtn.disabled = false;
-    chatInput.focus();
+  } catch {
+    container.innerHTML = '<div class="history-empty">Failed to load decks.</div>';
   }
 }
 
-function appendChatMessage(role, content, timestamp = null) {
-  // Clear welcome message if there are real messages
-  const welcome = chatMessages.querySelector(".chat-welcome");
-  if (welcome) welcome.remove();
 
-  const msgEl = document.createElement("div");
-  msgEl.className = `chat-message ${role}`;
+// ══════════════════════════════════════════════════════════════════════════
+// SHARED CHAT HELPERS
+// ══════════════════════════════════════════════════════════════════════════
 
+function buildChatMessage(role, content, timestamp = null) {
+  const el = document.createElement("div");
+  el.className = `chat-message ${role}`;
   const bubble = document.createElement("div");
   bubble.className = "chat-bubble";
   bubble.textContent = content;
-  msgEl.appendChild(bubble);
-
+  el.appendChild(bubble);
   if (timestamp || role === "assistant") {
-    const time = document.createElement("div");
-    time.className = "chat-message-time";
-    const t = timestamp ? new Date(timestamp + "Z") : new Date();
-    time.textContent = t.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-    msgEl.appendChild(time);
+    const t = document.createElement("div");
+    t.className = "chat-message-time";
+    const d = timestamp ? new Date(timestamp + "Z") : new Date();
+    t.textContent = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    el.appendChild(t);
   }
-
-  chatMessages.appendChild(msgEl);
-  scrollChatToBottom();
+  return el;
 }
 
-function scrollChatToBottom() {
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+function createStreamingBubble() {
+  const el = document.createElement("div");
+  el.className = "chat-message assistant";
+  const bubble = document.createElement("div");
+  bubble.className = "chat-bubble streaming";
+  el.appendChild(bubble);
+  return el;
 }
 
-// ── Utilities ──────────────────────────────────────────────────────────────
+function addTimestamp(msgEl) {
+  const t = document.createElement("div");
+  t.className = "chat-message-time";
+  t.textContent = new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  msgEl.appendChild(t);
+}
+
+function createTypingIndicator() {
+  const el = document.createElement("div");
+  el.className = "chat-typing";
+  el.innerHTML = "<span></span><span></span><span></span>";
+  return el;
+}
+
+function scrollEl(el) { el.scrollTop = el.scrollHeight; }
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// SSE STREAMING HELPER
+// ══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Read an SSE stream. Calls onChunk(text) for each chunk, onEvent(msg) for full events.
+ * Returns when the stream ends or an error/done event is received.
+ */
+async function streamSSE(response, onChunk, onEvent = null) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      try {
+        const msg = JSON.parse(line.slice(6));
+        if (msg.error) throw new Error(msg.error);
+        if (msg.chunk && onChunk) onChunk(msg.chunk);
+        if (onEvent) onEvent(msg);
+        if (msg.done) return;
+      } catch (e) {
+        if (e.message && !e.message.startsWith("JSON")) throw e;
+        // ignore JSON parse errors for partial lines
+      }
+    }
+  }
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// UTILITIES
+// ══════════════════════════════════════════════════════════════════════════
+
 function escapeHtml(str) {
   return String(str)
     .replace(/&/g, "&amp;")
@@ -796,6 +1433,15 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
+
+function highlightMatch(name, query) {
+  const idx = name.toLowerCase().indexOf(query);
+  if (idx === -1) return escapeHtml(name);
+  return escapeHtml(name.slice(0, idx)) +
+    `<mark>${escapeHtml(name.slice(idx, idx + query.length))}</mark>` +
+    escapeHtml(name.slice(idx + query.length));
+}
+
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 init();
