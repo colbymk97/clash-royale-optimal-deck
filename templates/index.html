@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clash Royale Deck Builder AI</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="crown">♛</span>
+        <span>Clash Royale Deck Builder AI</span>
+      </div>
+      <p class="tagline">AI-powered deck suggestions using real-time meta analysis</p>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Step 1: Import cards -->
+    <section class="card-section" id="import-section">
+      <h2>Step 1: Add Your Cards</h2>
+
+      <div class="import-tabs">
+        <button class="tab-btn active" data-tab="manual">Manual Entry</button>
+        <button class="tab-btn" data-tab="tag">Import by Player Tag</button>
+      </div>
+
+      <!-- Manual entry tab -->
+      <div class="tab-content active" id="tab-manual">
+        <div class="add-card-row">
+          <div class="search-wrap">
+            <input
+              type="text"
+              id="card-search"
+              placeholder="Search for a card..."
+              autocomplete="off"
+            />
+            <ul id="card-suggestions" class="suggestions-list hidden"></ul>
+          </div>
+          <select id="card-level">
+            <option value="">Level</option>
+          </select>
+          <button id="add-card-btn" class="btn btn-primary">Add Card</button>
+        </div>
+        <p class="hint">Type a card name and select its level to add it to your collection.</p>
+      </div>
+
+      <!-- Player tag import tab -->
+      <div class="tab-content" id="tab-tag">
+        <div class="tag-row">
+          <input
+            type="text"
+            id="player-tag"
+            placeholder="#ABC123XYZ"
+            autocomplete="off"
+          />
+          <button id="fetch-cards-btn" class="btn btn-primary">Import Cards</button>
+        </div>
+        <p class="hint">Enter your Clash Royale player tag to automatically import your unlocked cards and levels.</p>
+        <p id="tag-status" class="status-msg hidden"></p>
+      </div>
+    </section>
+
+    <!-- Card collection display -->
+    <section class="card-section" id="collection-section">
+      <div class="collection-header">
+        <h2>Your Collection <span id="card-count" class="badge">0 cards</span></h2>
+        <button id="clear-cards-btn" class="btn btn-ghost btn-sm">Clear All</button>
+      </div>
+      <div id="card-grid" class="card-grid"></div>
+      <p id="collection-hint" class="hint center">
+        Add at least 8 cards to generate deck suggestions.
+      </p>
+    </section>
+
+    <!-- Generate button -->
+    <section class="generate-section">
+      <button id="generate-btn" class="btn btn-generate" disabled>
+        <span class="btn-icon">⚔️</span> Analyze &amp; Generate Decks
+      </button>
+      <p class="generate-note">
+        Claude AI will search the current Clash Royale meta and recommend 3 optimal decks from your collection.
+      </p>
+    </section>
+
+    <!-- Results section -->
+    <section id="results-section" class="hidden">
+      <div class="results-header">
+        <h2>Your Deck Suggestions</h2>
+        <div id="meta-context" class="meta-banner"></div>
+      </div>
+
+      <!-- Streaming status -->
+      <div id="stream-status" class="stream-status">
+        <div class="spinner"></div>
+        <span id="stream-msg">Searching for current meta information...</span>
+      </div>
+
+      <!-- Deck cards -->
+      <div id="decks-container"></div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>Powered by Claude AI + Clash Royale API &mdash; Not affiliated with Supercell</p>
+  </footer>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
