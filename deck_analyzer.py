@@ -53,8 +53,9 @@ class DeckAnalyzer:
             api_key=os.environ.get("ANTHROPIC_API_KEY")
         )
 
+    # ── Deck Analysis ──────────────────────────────────────────────────────
+
     def _build_user_message(self, cards: list[dict]) -> str:
-        """Format the user's card collection into a prompt."""
         card_lines = []
         for card in sorted(cards, key=lambda c: c.get("name", "")):
             name = card.get("name", "Unknown")
@@ -94,7 +95,74 @@ Remember to account for my card levels when making suggestions."""
             messages=[{"role": "user", "content": user_message}],
         ) as stream:
             for event in stream:
-                # Only yield text deltas from the final response (not tool use)
+                if (
+                    event.type == "content_block_delta"
+                    and hasattr(event.delta, "type")
+                    and event.delta.type == "text_delta"
+                ):
+                    yield event.delta.text
+
+    # ── Deck Chat ──────────────────────────────────────────────────────────
+
+    def _build_chat_system(self, deck: dict, cards: list[dict]) -> str:
+        card_lines = "\n".join(
+            f"  - {c['name']} (Level {c['level']}/{c.get('maxLevel', 14)})"
+            for c in sorted(cards, key=lambda c: c.get("name", ""))
+        )
+        strategy = deck.get("strategy", {})
+        synergies = "\n".join(f"  • {s}" for s in strategy.get("key_synergies", []))
+
+        return f"""You are an expert Clash Royale coach having a deep-dive conversation about a specific deck.
+
+## The Deck Being Discussed
+- **Name:** {deck.get("name", "Unknown")}
+- **Archetype:** {deck.get("archetype", "Unknown")}
+- **Cards:** {", ".join(deck.get("cards", []))}
+- **Win Condition:** {deck.get("win_condition", "Unknown")}
+- **Average Elixir:** {deck.get("average_elixir", "?")}
+- **Difficulty:** {deck.get("difficulty", "?")}
+
+## Deck Strategy Overview
+{strategy.get("general", "N/A")}
+
+**Offense:** {strategy.get("offense", "N/A")}
+**Defense:** {strategy.get("defense", "N/A")}
+
+**Key Synergies:**
+{synergies or "  N/A"}
+
+## Player's Full Card Collection
+{card_lines}
+
+---
+Answer questions thoroughly and specifically about this deck. Cover topics like:
+- Exact card placements and timing
+- Elixir management and when to make pushes
+- How to handle specific threats and matchups
+- Double elixir and overtime adjustments
+- Common mistakes to avoid
+- How the player's card levels affect the strategy
+
+Be conversational, specific, and use Clash Royale terminology naturally. Keep responses focused and practical."""
+
+    def chat_stream(self, deck: dict, cards: list[dict], history: list[dict], user_message: str):
+        """Stream a chat response about a specific deck."""
+        system = self._build_chat_system(deck, cards)
+
+        messages = [
+            {"role": msg["role"], "content": msg["content"]}
+            for msg in history
+        ]
+        messages.append({"role": "user", "content": user_message})
+
+        with self.client.messages.stream(
+            model="claude-opus-4-6",
+            max_tokens=4096,
+            thinking={"type": "adaptive"},
+            system=system,
+            messages=messages,
+        ) as stream:
+            for event in stream:
                 if (
                     event.type == "content_block_delta"
                     and hasattr(event.delta, "type")

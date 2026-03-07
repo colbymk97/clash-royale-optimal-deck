@@ -31,12 +31,7 @@
       <div class="tab-content active" id="tab-manual">
         <div class="add-card-row">
           <div class="search-wrap">
-            <input
-              type="text"
-              id="card-search"
-              placeholder="Search for a card..."
-              autocomplete="off"
-            />
+            <input type="text" id="card-search" placeholder="Search for a card..." autocomplete="off" />
             <ul id="card-suggestions" class="suggestions-list hidden"></ul>
           </div>
           <select id="card-level">
@@ -50,12 +45,7 @@
       <!-- Player tag import tab -->
       <div class="tab-content" id="tab-tag">
         <div class="tag-row">
-          <input
-            type="text"
-            id="player-tag"
-            placeholder="#ABC123XYZ"
-            autocomplete="off"
-          />
+          <input type="text" id="player-tag" placeholder="#ABC123XYZ" autocomplete="off" />
           <button id="fetch-cards-btn" class="btn btn-primary">Import Cards</button>
         </div>
         <p class="hint">Enter your Clash Royale player tag to automatically import your unlocked cards and levels.</p>
@@ -70,9 +60,7 @@
         <button id="clear-cards-btn" class="btn btn-ghost btn-sm">Clear All</button>
       </div>
       <div id="card-grid" class="card-grid"></div>
-      <p id="collection-hint" class="hint center">
-        Add at least 8 cards to generate deck suggestions.
-      </p>
+      <p id="collection-hint" class="hint center">Add at least 8 cards to generate deck suggestions.</p>
     </section>
 
     <!-- Generate button -->
@@ -101,11 +89,71 @@
       <!-- Deck cards -->
       <div id="decks-container"></div>
     </section>
+
+    <!-- History section -->
+    <section class="card-section" id="history-section">
+      <div class="history-header">
+        <div>
+          <h2>Past Sessions</h2>
+          <p class="hint" style="margin:0">Previously generated deck suggestions</p>
+        </div>
+        <button id="history-toggle-btn" class="btn btn-ghost btn-sm">Show</button>
+      </div>
+
+      <div id="history-list" class="history-list hidden">
+        <div id="history-loading" class="history-empty">
+          <div class="spinner"></div> Loading history...
+        </div>
+        <div id="history-empty" class="history-empty hidden">No past sessions yet. Generate your first decks above!</div>
+        <div id="history-items"></div>
+      </div>
+    </section>
   </main>
 
   <footer class="site-footer">
     <p>Powered by Claude AI + Clash Royale API &mdash; Not affiliated with Supercell</p>
   </footer>
+
+  <!-- Chat Modal -->
+  <div id="chat-modal" class="chat-modal hidden" role="dialog" aria-modal="true" aria-labelledby="chat-deck-title">
+    <div class="chat-backdrop" id="chat-backdrop"></div>
+    <div class="chat-panel">
+      <div class="chat-panel-header">
+        <div class="chat-panel-title-group">
+          <span class="chat-panel-label">Strategy Chat</span>
+          <h3 id="chat-deck-title">Deck Name</h3>
+        </div>
+        <button id="chat-close-btn" class="btn btn-ghost btn-sm" title="Close chat">✕ Close</button>
+      </div>
+
+      <div class="chat-panel-context" id="chat-panel-context"></div>
+
+      <div class="chat-messages" id="chat-messages">
+        <div class="chat-welcome">
+          <p>👋 Ask me anything about this deck — matchups, placements, elixir management, counters, or how to improve your gameplay!</p>
+        </div>
+      </div>
+
+      <div class="chat-input-area">
+        <div class="chat-input-row">
+          <input
+            type="text"
+            id="chat-input"
+            placeholder="Ask about strategy, matchups, card placement..."
+            autocomplete="off"
+          />
+          <button id="chat-send-btn" class="btn btn-primary">Send</button>
+        </div>
+        <div class="chat-suggestions-row" id="chat-suggestions-row">
+          <span class="chat-suggestion-label">Try asking:</span>
+          <button class="chat-suggestion" data-q="How do I counter Mega Knight with this deck?">vs Mega Knight</button>
+          <button class="chat-suggestion" data-q="What's my best play in double elixir?">Double elixir tips</button>
+          <button class="chat-suggestion" data-q="How should I open the game?">Opening plays</button>
+          <button class="chat-suggestion" data-q="What are the biggest mistakes to avoid with this deck?">Common mistakes</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script src="/static/js/app.js"></script>
 </body>
