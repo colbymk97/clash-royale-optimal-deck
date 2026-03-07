@@ -49,10 +49,17 @@ class ClashRoyaleAPI:
 
         cards = []
         for card in raw_cards:
+            api_level = card.get("level", 1)
+            api_max = card.get("maxLevel", 14)
+            # The API returns rarity-relative levels (Common 1-14, Rare 1-12,
+            # Epic 1-8, Legendary 1-5). Since Supercell's level unification update
+            # the game displays all cards on a unified 1-14 scale.
+            # Convert: displayLevel = apiLevel + (14 - apiMaxLevel)
+            display_level = api_level + (14 - api_max)
             cards.append({
                 "name": card.get("name", "Unknown"),
-                "level": card.get("level", 1),
-                "maxLevel": card.get("maxLevel", 14),
+                "level": display_level,
+                "maxLevel": 14,
                 "id": card.get("id"),
                 "iconUrl": card.get("iconUrls", {}).get("medium", ""),
                 "elixirCost": card.get("elixirCost"),
