@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 import anthropic
 
@@ -89,6 +90,16 @@ class DeckAnalyzer:
             api_key=os.environ.get("ANTHROPIC_API_KEY")
         )
 
+    def _log_usage(self, label: str, stream):
+        try:
+            usage = stream.get_final_message().usage
+            inp = usage.input_tokens
+            out = usage.output_tokens
+            cost = (inp * 3 + out * 15) / 1_000_000
+            print(f"[tokens] {label} — input: {inp:,}  output: {out:,}  est cost: ${cost:.4f}", flush=True)
+        except Exception as e:
+            print(f"[tokens] {label} — could not read usage: {e}", flush=True)
+
     # ── Recommendation Analysis ────────────────────────────────────────────
 
     def _build_recommend_message(self, cards: list[dict]) -> str:
@@ -112,13 +123,11 @@ Account for my card levels when making suggestions."""
     def analyze_stream(self, cards: list[dict]):
         """Stream 3 deck recommendations for a player's collection."""
         with self.client.messages.stream(
-            model="claude-opus-4-6",
+            model="claude-sonnet-4-6",
             max_tokens=8000,
-            thinking={"type": "adaptive"},
             system=RECOMMEND_SYSTEM_PROMPT,
             tools=[
                 {"type": "web_search_20260209", "name": "web_search"},
-                {"type": "web_fetch_20260209", "name": "web_fetch"},
             ],
             messages=[{"role": "user", "content": self._build_recommend_message(cards)}],
         ) as stream:
@@ -129,6 +138,7 @@ Account for my card levels when making suggestions."""
                     and event.delta.type == "text_delta"
                 ):
                     yield event.delta.text
+            self._log_usage("recommend", stream)
 
     # ── Recommendation Chat ────────────────────────────────────────────────
 
@@ -165,9 +175,8 @@ Answer questions specifically about this deck. Be practical and use Clash Royale
         messages = [{"role": m["role"], "content": m["content"]} for m in history]
         messages.append({"role": "user", "content": user_message})
         with self.client.messages.stream(
-            model="claude-opus-4-6",
+            model="claude-sonnet-4-6",
             max_tokens=4096,
-            thinking={"type": "adaptive"},
             system=self._build_rec_chat_system(deck, cards),
             messages=messages,
         ) as stream:
@@ -178,6 +187,7 @@ Answer questions specifically about this deck. Be practical and use Clash Royale
                     and event.delta.type == "text_delta"
                 ):
                     yield event.delta.text
+            self._log_usage("rec-chat", stream)
 
     # ── Saved Deck Analysis ────────────────────────────────────────────────
 
@@ -203,13 +213,11 @@ Search the current meta, evaluate this deck, and return JSON as specified. Only 
     def analyze_saved_deck_stream(self, deck_cards: list[dict], collection: list[dict]):
         """Stream a one-time deep analysis of a saved/uploaded deck."""
         with self.client.messages.stream(
-            model="claude-opus-4-6",
+            model="claude-sonnet-4-6",
             max_tokens=6000,
-            thinking={"type": "adaptive"},
             system=ANALYSIS_SYSTEM_PROMPT,
             tools=[
                 {"type": "web_search_20260209", "name": "web_search"},
-                {"type": "web_fetch_20260209", "name": "web_fetch"},
             ],
             messages=[{"role": "user", "content": self._build_analysis_message(deck_cards, collection)}],
         ) as stream:
@@ -220,6 +228,7 @@ Search the current meta, evaluate this deck, and return JSON as specified. Only 
                     and event.delta.type == "text_delta"
                 ):
                     yield event.delta.text
+            self._log_usage("saved-deck-analysis", stream)
 
     # ── Saved Deck Fine-Tune Chat ──────────────────────────────────────────
 
@@ -281,9 +290,8 @@ Your role:
         messages = [{"role": m["role"], "content": m["content"]} for m in history]
         messages.append({"role": "user", "content": user_message})
         with self.client.messages.stream(
-            model="claude-opus-4-6",
+            model="claude-sonnet-4-6",
             max_tokens=4096,
-            thinking={"type": "adaptive"},
             system=self._build_saved_deck_chat_system(deck_cards, analysis, collection),
             messages=messages,
         ) as stream:
@@ -294,3 +302,4 @@ Your role:
                     and event.delta.type == "text_delta"
                 ):
                     yield event.delta.text
+            self._log_usage("saved-deck-chat", stream)

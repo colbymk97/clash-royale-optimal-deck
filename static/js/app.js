@@ -8,6 +8,7 @@ const state = {
   collection: [],      // [{name, level, maxLevel}] — the user's owned cards (unique per name)
   deckIds: [],         // rec deck IDs from the last analysis stream
   savedDecks: [],      // [{id, name, source, cards, created_at, updated_at}]
+  collectionSort: { field: 'level', dir: 'desc' },
 
   // Deck builder modal
   builder: {
@@ -122,7 +123,8 @@ const chatSendBtn       = $("chat-send-btn");
 
 // ── Init ───────────────────────────────────────────────────────────────────
 async function init() {
-  populateLevelOptions(14);
+  populateLevelOptions(16);
+  loadCollectionFromStorage();
   await Promise.all([loadAllCards(), loadSavedDecks()]);
   bindEvents();
 }
@@ -170,7 +172,22 @@ function bindEvents() {
   // Collection – tag import
   fetchCardsBtn.addEventListener("click", importByPlayerTag);
   playerTagInput.addEventListener("keydown", e => { if (e.key === "Enter") importByPlayerTag(); });
-  clearCardsBtn.addEventListener("click", () => { state.collection = []; renderCollection(); });
+  clearCardsBtn.addEventListener("click", () => { state.collection = []; saveCollectionToStorage(); renderCollection(); });
+
+  // Sort buttons
+  document.querySelectorAll(".sort-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const field = btn.dataset.sort;
+      if (state.collectionSort.field === field) {
+        state.collectionSort.dir = state.collectionSort.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        state.collectionSort.field = field;
+        state.collectionSort.dir = field === 'level' ? 'desc' : 'asc';
+      }
+      updateSortButtons();
+      renderCollection();
+    });
+  });
 
   // Generate
   generateBtn.addEventListener("click", generateDecks);
@@ -292,13 +309,15 @@ function addCardFromInput() {
   const existing = state.collection.find(c => c.name.toLowerCase() === name.toLowerCase());
   if (existing) {
     existing.level = level;
+    saveCollectionToStorage();
     renderCollection();
     afterAddCard();
     return;
   }
   const cardData = state.allCards.find(c => c.name.toLowerCase() === name.toLowerCase());
-  const maxLevel = cardData ? (cardData.maxLevel || 14) : 14;
+  const maxLevel = cardData ? (cardData.maxLevel || 16) : 16;
   state.collection.push({ name, level, maxLevel });
+  saveCollectionToStorage();
   renderCollection();
   afterAddCard();
 }
@@ -325,7 +344,8 @@ async function importByPlayerTag() {
     const seen = new Set();
     state.collection = data.cards
       .filter(c => { const k = c.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; })
-      .map(c => ({ name: c.name, level: c.level, maxLevel: c.maxLevel || 14 }));
+      .map(c => ({ name: c.name, level: c.level, maxLevel: c.maxLevel || 16 }));
+    saveCollectionToStorage();
     renderCollection();
     renderMyDecks(); // refresh staleness
     const { name, trophies, arena } = data.player || {};
@@ -344,13 +364,65 @@ function showTagStatus(msg, type) {
   tagStatus.classList.remove("hidden");
 }
 
+const RARITY_ORDER = { common: 0, rare: 1, epic: 2, legendary: 3, champion: 4 };
+
+function getSortedCollection() {
+  const { field, dir } = state.collectionSort;
+  const mult = dir === 'asc' ? 1 : -1;
+  return [...state.collection].sort((a, b) => {
+    let va, vb;
+    if (field === 'rarity') {
+      const ca = state.allCards.find(c => c.name === a.name);
+      const cb = state.allCards.find(c => c.name === b.name);
+      va = RARITY_ORDER[(ca?.rarity || '').toLowerCase()] ?? 0;
+      vb = RARITY_ORDER[(cb?.rarity || '').toLowerCase()] ?? 0;
+    } else if (field === 'elixir') {
+      const ca = state.allCards.find(c => c.name === a.name);
+      const cb = state.allCards.find(c => c.name === b.name);
+      va = ca?.elixirCost ?? 0;
+      vb = cb?.elixirCost ?? 0;
+    } else {
+      va = a.level; vb = b.level;
+    }
+    return mult * (va - vb) || a.name.localeCompare(b.name);
+  });
+}
+
+function updateSortButtons() {
+  document.querySelectorAll(".sort-btn").forEach(btn => {
+    const active = btn.dataset.sort === state.collectionSort.field;
+    btn.classList.toggle("active", active);
+    const label = btn.dataset.sort.charAt(0).toUpperCase() + btn.dataset.sort.slice(1);
+    btn.textContent = active ? `${label} ${state.collectionSort.dir === 'asc' ? '▲' : '▼'}` : label;
+  });
+}
+
+function saveCollectionToStorage() {
+  try { localStorage.setItem('clash_collection', JSON.stringify(state.collection)); } catch { /* ignore */ }
+}
+
+function loadCollectionFromStorage() {
+  try {
+    const raw = localStorage.getItem('clash_collection');
+    if (raw) {
+      state.collection = JSON.parse(raw);
+      renderCollection();
+    }
+  } catch { /* ignore */ }
+}
+
 function renderCollection() {
   cardGrid.innerHTML = "";
-  state.collection.forEach((card, i) => {
+  getSortedCollection().forEach(card => {
     const chip = document.createElement("div");
     chip.className = "card-chip";
     chip.innerHTML = `<span class="chip-level">${card.level}</span><span class="chip-name">${escapeHtml(card.name)}</span><button class="chip-remove" title="Remove">&times;</button>`;
-    chip.querySelector(".chip-remove").addEventListener("click", () => { state.collection.splice(i, 1); renderCollection(); renderMyDecks(); });
+    chip.querySelector(".chip-remove").addEventListener("click", () => {
+      state.collection = state.collection.filter(c => c.name !== card.name);
+      saveCollectionToStorage();
+      renderCollection();
+      renderMyDecks();
+    });
     cardGrid.appendChild(chip);
   });
   const count = state.collection.length;
@@ -495,6 +567,7 @@ function renderSlots() {
 
     slot.addEventListener("click", e => {
       if (e.target.classList.contains("card-slot-remove")) return;
+      e.stopPropagation();
       toggleSlotPicker(i, slot);
     });
 
@@ -516,10 +589,10 @@ function toggleSlotPicker(slotIdx, slotEl) {
   state.builder.activeSlot = slotIdx;
   renderSlots();
 
-  // Position the dropdown near the slot
+  // Position the dropdown near the slot (fixed positioning — no scroll offset)
   const rect = slotEl.getBoundingClientRect();
-  slotPickerDropdown.style.top = `${rect.bottom + window.scrollY + 4}px`;
-  slotPickerDropdown.style.left = `${rect.left + window.scrollX}px`;
+  slotPickerDropdown.style.top = `${rect.bottom + 4}px`;
+  slotPickerDropdown.style.left = `${rect.left}px`;
   slotPickerDropdown.classList.remove("hidden");
   slotPickerSearch.value = "";
   renderSlotPickerList();

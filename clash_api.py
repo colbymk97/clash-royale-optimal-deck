@@ -1,5 +1,13 @@
 import os
+import json
+import logging
 import requests
+
+logging.basicConfig(
+    filename=os.path.join(os.path.dirname(__file__), "clash_api.log"),
+    level=logging.DEBUG,
+    format="%(asctime)s %(levelname)s %(message)s",
+)
 
 CLASH_API_BASE = "https://api.clashroyale.com/v1"
 
@@ -47,12 +55,25 @@ class ClashRoyaleAPI:
         if not raw_cards:
             return {"error": "No cards found for this player. The account may be new."}
 
+        logging.debug("Raw player cards response:\n%s", json.dumps(raw_cards, indent=2))
+
+        rarity_offset = {
+            "common": 0,
+            "rare": 2,
+            "epic": 5,
+            "legendary": 8,
+            "champion": 10,
+        }
+
         cards = []
         for card in raw_cards:
+            rarity = card.get("rarity", "").lower()
+            offset = rarity_offset.get(rarity, 0)
+            display_level = card.get("level", 1) + offset
             cards.append({
                 "name": card.get("name", "Unknown"),
-                "level": card.get("level", 1),
-                "maxLevel": card.get("maxLevel", 14),
+                "level": display_level,
+                "maxLevel": 16,
                 "id": card.get("id"),
                 "iconUrl": card.get("iconUrls", {}).get("medium", ""),
                 "elixirCost": card.get("elixirCost"),

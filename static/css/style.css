@@ -78,6 +78,26 @@ body {
   padding: 22px;
 }
 .card-section h2 { font-size: 1.15rem; font-weight: 700; margin-bottom: 14px; }
+.collection-sort-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.sort-label { font-size: 0.78rem; color: var(--text-muted); }
+.sort-btn {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 20px;
+  padding: 3px 12px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.sort-btn:hover { border-color: var(--cr-blue); color: var(--text); }
+.sort-btn.active { background: var(--cr-blue); border-color: var(--cr-blue); color: #fff; }
 .section-header {
   display: flex;
   justify-content: space-between;
