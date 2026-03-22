@@ -18,9 +18,22 @@ def _get_conn() -> sqlite3.Connection:
 def init_db():
     with _get_conn() as conn:
         conn.executescript("""
+            -- Player profiles
+            CREATE TABLE IF NOT EXISTS profiles (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                player_tag      TEXT NOT NULL UNIQUE,
+                player_name     TEXT NOT NULL DEFAULT '',
+                trophies        INTEGER DEFAULT 0,
+                arena           TEXT DEFAULT '',
+                collection_json TEXT NOT NULL DEFAULT '[]',
+                last_synced     TEXT,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
             -- Recommendation analysis sessions
             CREATE TABLE IF NOT EXISTS sessions (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_id   INTEGER REFERENCES profiles(id) ON DELETE SET NULL,
                 created_at   TEXT NOT NULL DEFAULT (datetime('now')),
                 meta_context TEXT,
                 cards_json   TEXT NOT NULL
@@ -48,6 +61,7 @@ def init_db():
             -- User's saved/owned decks
             CREATE TABLE IF NOT EXISTS saved_decks (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_id INTEGER REFERENCES profiles(id) ON DELETE CASCADE,
                 name       TEXT NOT NULL DEFAULT 'My Deck',
                 source     TEXT NOT NULL DEFAULT 'manual',
                 cards_json TEXT NOT NULL,
@@ -55,7 +69,7 @@ def init_db():
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
 
-            -- One-time deep analysis per saved deck (re-generated when cards change)
+            -- One-time deep analysis per saved deck
             CREATE TABLE IF NOT EXISTS saved_deck_analysis (
                 id                  INTEGER PRIMARY KEY AUTOINCREMENT,
                 saved_deck_id       INTEGER NOT NULL REFERENCES saved_decks(id) ON DELETE CASCADE,
@@ -74,14 +88,82 @@ def init_db():
             );
         """)
 
+    # Migrate pre-profile tables: add profile_id if missing
+    with _get_conn() as conn:
+        for table, col_def in [
+            ("sessions",    "profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL"),
+            ("saved_decks", "profile_id INTEGER REFERENCES profiles(id) ON DELETE CASCADE"),
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
+            except Exception:
+                pass  # column already exists
+
+
+# ── Profiles ───────────────────────────────────────────────────────────────
+
+def list_profiles() -> list:
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, player_tag, player_name, trophies, arena, last_synced, created_at "
+            "FROM profiles ORDER BY created_at ASC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_profile(profile_id: int) -> dict | None:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, player_tag, player_name, trophies, arena, collection_json, last_synced "
+            "FROM profiles WHERE id = ?", (profile_id,)
+        ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["collection"] = json.loads(d.pop("collection_json"))
+        return d
+
+
+def create_profile(player_tag: str, player_name: str, trophies: int, arena: str, collection: list) -> int:
+    with _get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO profiles (player_tag, player_name, trophies, arena, collection_json, last_synced) "
+            "VALUES (?, ?, ?, ?, ?, datetime('now'))",
+            (player_tag.upper(), player_name, trophies, arena, json.dumps(collection)),
+        )
+        return cur.lastrowid
+
+
+def update_profile_sync(profile_id: int, player_name: str, trophies: int, arena: str, collection: list):
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE profiles SET player_name=?, trophies=?, arena=?, collection_json=?, last_synced=datetime('now') "
+            "WHERE id=?",
+            (player_name, trophies, arena, json.dumps(collection), profile_id),
+        )
+
+
+def delete_profile(profile_id: int) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute("DELETE FROM profiles WHERE id = ?", (profile_id,))
+        return cur.rowcount > 0
+
+
+def get_profile_by_tag(player_tag: str) -> dict | None:
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT id FROM profiles WHERE player_tag = ?", (player_tag.upper(),)
+        ).fetchone()
+        return dict(row) if row else None
+
 
 # ── Recommendation Sessions ────────────────────────────────────────────────
 
-def save_session(cards: list, meta_context: str, decks: list) -> dict:
+def save_session(cards: list, meta_context: str, decks: list, profile_id: int | None = None) -> dict:
     with _get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO sessions (meta_context, cards_json) VALUES (?, ?)",
-            (meta_context, json.dumps(cards)),
+            "INSERT INTO sessions (profile_id, meta_context, cards_json) VALUES (?, ?, ?)",
+            (profile_id, meta_context, json.dumps(cards)),
         )
         session_id = cur.lastrowid
         deck_ids = []
@@ -94,21 +176,31 @@ def save_session(cards: list, meta_context: str, decks: list) -> dict:
         return {"session_id": session_id, "deck_ids": deck_ids}
 
 
-def list_sessions(limit: int = 30) -> list:
+def list_sessions(limit: int = 30, profile_id: int | None = None) -> list:
     with _get_conn() as conn:
-        rows = conn.execute(
-            """
-            SELECT s.id, s.created_at, s.meta_context,
-                   s.cards_json,
-                   COUNT(d.id) AS deck_count
-            FROM sessions s
-            LEFT JOIN decks d ON d.session_id = s.id
-            GROUP BY s.id
-            ORDER BY s.id DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
+        if profile_id is not None:
+            rows = conn.execute(
+                """
+                SELECT s.id, s.created_at, s.meta_context, s.cards_json,
+                       COUNT(d.id) AS deck_count
+                FROM sessions s
+                LEFT JOIN decks d ON d.session_id = s.id
+                WHERE s.profile_id = ?
+                GROUP BY s.id ORDER BY s.id DESC LIMIT ?
+                """,
+                (profile_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT s.id, s.created_at, s.meta_context, s.cards_json,
+                       COUNT(d.id) AS deck_count
+                FROM sessions s
+                LEFT JOIN decks d ON d.session_id = s.id
+                GROUP BY s.id ORDER BY s.id DESC LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
         return [dict(r) for r in rows]
 
 
@@ -168,20 +260,28 @@ def save_chat_message(deck_id: int, role: str, content: str):
 
 # ── Saved Decks ────────────────────────────────────────────────────────────
 
-def create_saved_deck(name: str, cards: list, source: str = "manual") -> int:
+def create_saved_deck(name: str, cards: list, source: str = "manual", profile_id: int | None = None) -> int:
     with _get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO saved_decks (name, source, cards_json) VALUES (?, ?, ?)",
-            (name, source, json.dumps(cards)),
+            "INSERT INTO saved_decks (profile_id, name, source, cards_json) VALUES (?, ?, ?, ?)",
+            (profile_id, name, source, json.dumps(cards)),
         )
         return cur.lastrowid
 
 
-def list_saved_decks() -> list:
+def list_saved_decks(profile_id: int | None = None) -> list:
     with _get_conn() as conn:
-        rows = conn.execute(
-            "SELECT id, name, source, cards_json, created_at, updated_at FROM saved_decks ORDER BY updated_at DESC"
-        ).fetchall()
+        if profile_id is not None:
+            rows = conn.execute(
+                "SELECT id, name, source, cards_json, created_at, updated_at "
+                "FROM saved_decks WHERE profile_id = ? ORDER BY updated_at DESC",
+                (profile_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, name, source, cards_json, created_at, updated_at "
+                "FROM saved_decks ORDER BY updated_at DESC"
+            ).fetchall()
         result = []
         for r in rows:
             d = dict(r)
@@ -231,11 +331,8 @@ def delete_saved_deck(deck_id: int) -> bool:
 def get_saved_deck_analysis(saved_deck_id: int) -> dict | None:
     with _get_conn() as conn:
         row = conn.execute(
-            """
-            SELECT analysis_json, collection_snapshot, created_at
-            FROM saved_deck_analysis WHERE saved_deck_id = ?
-            ORDER BY id DESC LIMIT 1
-            """,
+            "SELECT analysis_json, collection_snapshot, created_at "
+            "FROM saved_deck_analysis WHERE saved_deck_id = ? ORDER BY id DESC LIMIT 1",
             (saved_deck_id,),
         ).fetchone()
         if not row:
@@ -249,7 +346,6 @@ def get_saved_deck_analysis(saved_deck_id: int) -> dict | None:
 
 def save_saved_deck_analysis(saved_deck_id: int, analysis: dict, collection_snapshot: list):
     with _get_conn() as conn:
-        # Delete any prior analysis (only one stored at a time)
         conn.execute("DELETE FROM saved_deck_analysis WHERE saved_deck_id = ?", (saved_deck_id,))
         conn.execute(
             "INSERT INTO saved_deck_analysis (saved_deck_id, analysis_json, collection_snapshot) VALUES (?, ?, ?)",
@@ -260,7 +356,6 @@ def save_saved_deck_analysis(saved_deck_id: int, analysis: dict, collection_snap
 def clear_saved_deck_analysis(saved_deck_id: int):
     with _get_conn() as conn:
         conn.execute("DELETE FROM saved_deck_analysis WHERE saved_deck_id = ?", (saved_deck_id,))
-        # Also clear chat so it can restart fresh after card changes
         conn.execute("DELETE FROM saved_deck_chat WHERE saved_deck_id = ?", (saved_deck_id,))
 
 

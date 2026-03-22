@@ -4,24 +4,26 @@
 
 // ── State ──────────────────────────────────────────────────────────────────
 const state = {
-  allCards: [],        // [{name, maxLevel}]
-  collection: [],      // [{name, level, maxLevel}] — the user's owned cards (unique per name)
+  allCards: [],        // [{name, elixirCost, rarity, maxLevel}]
+  collection: [],      // active profile's cards [{name, level, maxLevel}]
+  profiles: [],        // [{id, player_tag, player_name, trophies, arena, last_synced}]
+  activeProfileId: null,
   deckIds: [],         // rec deck IDs from the last analysis stream
   savedDecks: [],      // [{id, name, source, cards, created_at, updated_at}]
   collectionSort: { field: 'level', dir: 'desc' },
 
   // Deck builder modal
   builder: {
-    editingId: null,   // null = new deck, int = editing existing
-    slots: Array(8).fill(null),  // each slot: {name, level, maxLevel} or null
-    activeSlot: null,  // index of slot currently showing picker
+    editingId: null,
+    slots: Array(8).fill(null),
+    activeSlot: null,
   },
 
   // Saved deck detail modal
   detail: {
     deckId: null,
     deckData: null,
-    analysis: null,    // parsed analysis JSON or null
+    analysis: null,
     chatStreaming: false,
     analysisStreaming: false,
   },
@@ -37,18 +39,21 @@ const state = {
 // ── DOM refs ───────────────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
 
+// Profiles
+const addProfileBtn     = $("add-profile-btn");
+const addProfileForm    = $("add-profile-form");
+const newProfileTag     = $("new-profile-tag");
+const connectProfileBtn = $("connect-profile-btn");
+const cancelAddProfile  = $("cancel-add-profile");
+const addProfileStatus  = $("add-profile-status");
+const profilesEmpty     = $("profiles-empty");
+const profilesGrid      = $("profiles-grid");
+
 // Collection
-const cardSearch     = $("card-search");
-const cardLevelSel   = $("card-level");
-const addCardBtn     = $("add-card-btn");
-const suggestList    = $("card-suggestions");
-const cardGrid       = $("card-grid");
-const cardCountBadge = $("card-count");
-const collectionHint = $("collection-hint");
-const clearCardsBtn  = $("clear-cards-btn");
-const playerTagInput = $("player-tag");
-const fetchCardsBtn  = $("fetch-cards-btn");
-const tagStatus      = $("tag-status");
+const cardGrid           = $("card-grid");
+const cardCountBadge     = $("card-count");
+const collectionHint     = $("collection-hint");
+const collectionProfileLabel = $("collection-profile-label");
 
 // Generate
 const generateBtn    = $("generate-btn");
@@ -123,10 +128,33 @@ const chatSendBtn       = $("chat-send-btn");
 
 // ── Init ───────────────────────────────────────────────────────────────────
 async function init() {
-  populateLevelOptions(16);
-  loadCollectionFromStorage();
-  await Promise.all([loadAllCards(), loadSavedDecks()]);
+  await Promise.all([loadAllCards(), loadProfiles(), checkCRStatus()]);
   bindEvents();
+}
+
+async function checkCRStatus() {
+  try {
+    const res = await fetch("/api/cr-status");
+    const data = await res.json();
+    if (!data.available) {
+      showCRStatusBanner(data.message);
+    }
+  } catch { /* ignore — server not ready yet */ }
+}
+
+function showCRStatusBanner(message) {
+  const banner = document.createElement("div");
+  banner.id = "cr-status-banner";
+  banner.className = "cr-status-banner";
+  banner.innerHTML = `
+    <span class="cr-status-icon">ℹ</span>
+    <span class="cr-status-msg">${escapeHtml(message)}</span>
+    <button class="cr-status-dismiss" title="Dismiss">✕</button>
+  `;
+  banner.querySelector(".cr-status-dismiss").addEventListener("click", () => banner.remove());
+  // Insert after the header, before main
+  const main = document.querySelector("main");
+  if (main) main.prepend(banner);
 }
 
 async function loadAllCards() {
@@ -137,42 +165,27 @@ async function loadAllCards() {
   } catch { /* ignore */ }
 }
 
-function populateLevelOptions(max = 14) {
-  cardLevelSel.innerHTML = '<option value="">Level</option>';
-  for (let i = 1; i <= max; i++) {
-    const opt = document.createElement("option");
-    opt.value = i;
-    opt.textContent = `Lvl ${i}`;
-    cardLevelSel.appendChild(opt);
-  }
-}
-
 
 // ── Event Bindings ─────────────────────────────────────────────────────────
 function bindEvents() {
-  // Tabs
-  document.querySelectorAll(".tab-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
-      document.querySelectorAll(".tab-content").forEach(t => t.classList.remove("active"));
-      btn.classList.add("active");
-      $(`tab-${btn.dataset.tab}`).classList.add("active");
-    });
+  // Profile section
+  addProfileBtn.addEventListener("click", () => {
+    addProfileForm.classList.remove("hidden");
+    addProfileBtn.classList.add("hidden");
+    addProfileStatus.classList.add("hidden");
+    newProfileTag.focus();
   });
-
-  // Collection – manual
-  cardSearch.addEventListener("input", onSearchInput);
-  cardSearch.addEventListener("keydown", onSearchKeydown);
-  document.addEventListener("click", (e) => {
-    if (!cardSearch.contains(e.target)) hideSuggestions();
-    if (!slotPickerDropdown.contains(e.target)) hideSlotPicker();
+  cancelAddProfile.addEventListener("click", () => {
+    addProfileForm.classList.add("hidden");
+    addProfileBtn.classList.remove("hidden");
+    newProfileTag.value = "";
+    addProfileStatus.classList.add("hidden");
   });
-  addCardBtn.addEventListener("click", addCardFromInput);
-
-  // Collection – tag import
-  fetchCardsBtn.addEventListener("click", importByPlayerTag);
-  playerTagInput.addEventListener("keydown", e => { if (e.key === "Enter") importByPlayerTag(); });
-  clearCardsBtn.addEventListener("click", () => { state.collection = []; saveCollectionToStorage(); renderCollection(); });
+  connectProfileBtn.addEventListener("click", () => addProfile(newProfileTag.value.trim()));
+  newProfileTag.addEventListener("keydown", e => {
+    if (e.key === "Enter") addProfile(newProfileTag.value.trim());
+    if (e.key === "Escape") cancelAddProfile.click();
+  });
 
   // Sort buttons
   document.querySelectorAll(".sort-btn").forEach(btn => {
@@ -187,6 +200,11 @@ function bindEvents() {
       updateSortButtons();
       renderCollection();
     });
+  });
+
+  // Close slot picker on outside click
+  document.addEventListener("click", (e) => {
+    if (!slotPickerDropdown.contains(e.target)) hideSlotPicker();
   });
 
   // Generate
@@ -251,118 +269,199 @@ function bindEvents() {
 
 
 // ══════════════════════════════════════════════════════════════════════════
-// COLLECTION
+// PROFILES
 // ══════════════════════════════════════════════════════════════════════════
 
-let focusedIdx = -1;
+async function loadProfiles() {
+  try {
+    const res = await fetch("/api/profiles");
+    const data = await res.json();
+    state.profiles = data.profiles || [];
 
-function onSearchInput() {
-  const q = cardSearch.value.trim().toLowerCase();
-  if (!q) { hideSuggestions(); return; }
-  const alreadyAdded = new Set(state.collection.map(c => c.name.toLowerCase()));
-  const matches = state.allCards
-    .filter(c => c.name.toLowerCase().includes(q) && !alreadyAdded.has(c.name.toLowerCase()))
-    .slice(0, 8);
-  if (!matches.length) { hideSuggestions(); return; }
+    const savedId = parseInt(localStorage.getItem("clash_active_profile") || "0");
+    const exists = savedId && state.profiles.some(p => p.id === savedId);
+    const targetId = exists ? savedId : (state.profiles[0]?.id ?? null);
 
-  suggestList.innerHTML = "";
-  focusedIdx = -1;
-  matches.forEach(card => {
-    const li = document.createElement("li");
-    li.innerHTML = highlightMatch(card.name, q);
-    li.dataset.name = card.name;
-    li.dataset.maxLevel = card.maxLevel || 14;
-    li.addEventListener("mousedown", e => { e.preventDefault(); selectSuggestion(card.name, card.maxLevel || 14); });
-    suggestList.appendChild(li);
-  });
-  suggestList.classList.remove("hidden");
+    if (targetId) {
+      await activateProfile(targetId);
+    } else {
+      renderProfiles();
+      renderCollection();
+      await loadSavedDecks();
+    }
+  } catch { /* ignore */ }
 }
 
-function onSearchKeydown(e) {
-  const items = suggestList.querySelectorAll("li");
-  if (e.key === "ArrowDown") { e.preventDefault(); focusedIdx = Math.min(focusedIdx + 1, items.length - 1); updateFocused(items); }
-  else if (e.key === "ArrowUp") { e.preventDefault(); focusedIdx = Math.max(focusedIdx - 1, 0); updateFocused(items); }
-  else if (e.key === "Enter") {
-    if (focusedIdx >= 0 && items[focusedIdx]) { const li = items[focusedIdx]; selectSuggestion(li.dataset.name, parseInt(li.dataset.maxLevel)); }
-    else addCardFromInput();
-  } else if (e.key === "Escape") hideSuggestions();
+async function activateProfile(profileId) {
+  state.activeProfileId = profileId;
+  localStorage.setItem("clash_active_profile", profileId);
+
+  try {
+    const res = await fetch(`/api/profiles/${profileId}`);
+    const data = await res.json();
+    if (data.profile) {
+      state.collection = data.profile.collection || [];
+    }
+  } catch { /* ignore */ }
+
+  renderProfiles();
+  renderCollection();
+  historyLoaded = false;
+  await loadSavedDecks();
 }
 
-function updateFocused(items) { items.forEach((li, i) => li.classList.toggle("focused", i === focusedIdx)); }
+async function addProfile(tag) {
+  if (!tag) { newProfileTag.focus(); return; }
 
-function selectSuggestion(name, maxLevel) {
-  cardSearch.value = name;
-  populateLevelOptions(maxLevel);
-  cardLevelSel.value = maxLevel;
-  hideSuggestions();
-  cardLevelSel.focus();
+  addProfileStatus.textContent = "Connecting to Clash Royale API...";
+  addProfileStatus.className = "status-msg loading";
+  addProfileStatus.classList.remove("hidden");
+  connectProfileBtn.disabled = true;
+
+  try {
+    const res = await fetch("/api/profiles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ player_tag: tag }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      addProfileStatus.textContent = `Error: ${data.error}`;
+      addProfileStatus.className = "status-msg error";
+      return;
+    }
+
+    // Re-fetch full profile list, then activate the new one
+    const listRes = await fetch("/api/profiles");
+    const listData = await listRes.json();
+    state.profiles = listData.profiles || [];
+
+    addProfileForm.classList.add("hidden");
+    addProfileBtn.classList.remove("hidden");
+    newProfileTag.value = "";
+    addProfileStatus.classList.add("hidden");
+
+    await activateProfile(data.profile.id);
+  } catch (err) {
+    addProfileStatus.textContent = `Network error: ${err.message}`;
+    addProfileStatus.className = "status-msg error";
+  } finally {
+    connectProfileBtn.disabled = false;
+  }
 }
 
-function hideSuggestions() { suggestList.classList.add("hidden"); suggestList.innerHTML = ""; focusedIdx = -1; }
+async function syncProfile(profileId) {
+  const btns = profilesGrid.querySelectorAll(`.profile-sync-btn[data-id="${profileId}"]`);
+  btns.forEach(b => { b.disabled = true; b.textContent = "Syncing…"; });
 
-function addCardFromInput() {
-  const name = cardSearch.value.trim();
-  const level = parseInt(cardLevelSel.value);
-  if (!name) { cardSearch.focus(); return; }
-  if (!level) { cardLevelSel.focus(); return; }
+  try {
+    const res = await fetch(`/api/profiles/${profileId}/sync`, { method: "POST" });
+    const data = await res.json();
+    if (data.error) { alert(data.error); return; }
 
-  const existing = state.collection.find(c => c.name.toLowerCase() === name.toLowerCase());
-  if (existing) {
-    existing.level = level;
-    saveCollectionToStorage();
-    renderCollection();
-    afterAddCard();
+    // Update stored profile metadata
+    const idx = state.profiles.findIndex(p => p.id === profileId);
+    if (idx !== -1) {
+      state.profiles[idx] = {
+        ...state.profiles[idx],
+        player_name: data.profile.player_name,
+        trophies: data.profile.trophies,
+        arena: data.profile.arena,
+        last_synced: data.profile.last_synced,
+      };
+    }
+
+    // If active, update collection
+    if (profileId === state.activeProfileId) {
+      state.collection = data.profile.collection || [];
+      renderCollection();
+      renderMyDecks();
+    }
+    renderProfiles();
+  } catch (err) {
+    alert(`Sync failed: ${err.message}`);
+  } finally {
+    btns.forEach(b => { b.disabled = false; b.textContent = "↻ Sync"; });
+  }
+}
+
+async function deleteProfile(profileId) {
+  const profile = state.profiles.find(p => p.id === profileId);
+  if (!profile) return;
+  if (!confirm(`Delete profile for ${profile.player_name || profile.player_tag}?\nThis will also remove their saved decks.`)) return;
+
+  try {
+    await fetch(`/api/profiles/${profileId}`, { method: "DELETE" });
+    state.profiles = state.profiles.filter(p => p.id !== profileId);
+
+    if (state.activeProfileId === profileId) {
+      state.activeProfileId = null;
+      state.collection = [];
+      localStorage.removeItem("clash_active_profile");
+
+      if (state.profiles.length > 0) {
+        await activateProfile(state.profiles[0].id);
+      } else {
+        renderProfiles();
+        renderCollection();
+        await loadSavedDecks();
+      }
+    } else {
+      renderProfiles();
+    }
+  } catch (err) {
+    alert(`Delete failed: ${err.message}`);
+  }
+}
+
+function renderProfiles() {
+  profilesGrid.innerHTML = "";
+
+  if (!state.profiles.length) {
+    profilesEmpty.style.display = "";
     return;
   }
-  const cardData = state.allCards.find(c => c.name.toLowerCase() === name.toLowerCase());
-  const maxLevel = cardData ? (cardData.maxLevel || 16) : 16;
-  state.collection.push({ name, level, maxLevel });
-  saveCollectionToStorage();
-  renderCollection();
-  afterAddCard();
+  profilesEmpty.style.display = "none";
+
+  state.profiles.forEach(profile => {
+    const isActive = profile.id === state.activeProfileId;
+    const card = document.createElement("div");
+    card.className = `profile-card${isActive ? " active" : ""}`;
+
+    const syncTime = profile.last_synced
+      ? new Date(profile.last_synced + "Z").toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+      : "Never";
+
+    card.innerHTML = `
+      <div class="profile-card-body">
+        <div class="profile-name">${escapeHtml(profile.player_name || "Unknown")}</div>
+        <div class="profile-tag">${escapeHtml(profile.player_tag)}</div>
+        <div class="profile-stats">🏆 ${(profile.trophies || 0).toLocaleString()} · ${escapeHtml(profile.arena || "—")}</div>
+        <div class="profile-sync-time">Synced: ${syncTime}</div>
+      </div>
+      <div class="profile-card-actions">
+        ${isActive
+          ? '<span class="profile-active-badge">✓ Active</span>'
+          : `<button class="btn btn-primary btn-sm profile-select-btn" data-id="${profile.id}">Select</button>`}
+        <button class="btn btn-ghost btn-sm profile-sync-btn" data-id="${profile.id}">↻ Sync</button>
+        <button class="btn btn-ghost btn-sm btn-danger-ghost profile-delete-btn" data-id="${profile.id}">Delete</button>
+      </div>
+    `;
+
+    if (!isActive) {
+      card.querySelector(".profile-select-btn").addEventListener("click", () => activateProfile(profile.id));
+    }
+    card.querySelector(".profile-sync-btn").addEventListener("click", () => syncProfile(profile.id));
+    card.querySelector(".profile-delete-btn").addEventListener("click", () => deleteProfile(profile.id));
+
+    profilesGrid.appendChild(card);
+  });
 }
 
-function afterAddCard() {
-  cardSearch.value = "";
-  cardLevelSel.value = "";
-  hideSuggestions();
-  cardSearch.focus();
-  // Refresh My Decks staleness display
-  renderMyDecks();
-}
 
-async function importByPlayerTag() {
-  const tag = playerTagInput.value.trim();
-  if (!tag) { showTagStatus("Please enter a player tag.", "error"); return; }
-  showTagStatus("Fetching your cards from Clash Royale API...", "loading");
-  fetchCardsBtn.disabled = true;
-  try {
-    const res = await fetch(`/api/fetch-cards/${encodeURIComponent(tag)}`);
-    const data = await res.json();
-    if (data.error) { showTagStatus(`Error: ${data.error}`, "error"); return; }
-    // Deduplicate by name (API should already be unique, but be safe)
-    const seen = new Set();
-    state.collection = data.cards
-      .filter(c => { const k = c.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; })
-      .map(c => ({ name: c.name, level: c.level, maxLevel: c.maxLevel || 16 }));
-    saveCollectionToStorage();
-    renderCollection();
-    renderMyDecks(); // refresh staleness
-    const { name, trophies, arena } = data.player || {};
-    const label = [name, trophies && `${trophies} trophies`, arena].filter(Boolean).join(" · ");
-    showTagStatus(`Imported ${data.total} cards for ${label}`, "success");
-  } catch (err) {
-    showTagStatus(`Network error: ${err.message}`, "error");
-  } finally {
-    fetchCardsBtn.disabled = false;
-  }
-}
-
-function showTagStatus(msg, type) {
-  tagStatus.textContent = msg;
-  tagStatus.className = `status-msg ${type}`;
-  tagStatus.classList.remove("hidden");
-}
+// ══════════════════════════════════════════════════════════════════════════
+// COLLECTION (read-only — populated from active profile)
+// ══════════════════════════════════════════════════════════════════════════
 
 const RARITY_ORDER = { common: 0, rare: 1, epic: 2, legendary: 3, champion: 4 };
 
@@ -397,37 +496,33 @@ function updateSortButtons() {
   });
 }
 
-function saveCollectionToStorage() {
-  try { localStorage.setItem('clash_collection', JSON.stringify(state.collection)); } catch { /* ignore */ }
-}
-
-function loadCollectionFromStorage() {
-  try {
-    const raw = localStorage.getItem('clash_collection');
-    if (raw) {
-      state.collection = JSON.parse(raw);
-      renderCollection();
-    }
-  } catch { /* ignore */ }
-}
-
 function renderCollection() {
   cardGrid.innerHTML = "";
+
+  const profile = state.profiles.find(p => p.id === state.activeProfileId);
+  if (collectionProfileLabel) {
+    collectionProfileLabel.textContent = profile
+      ? `${escapeHtml(profile.player_name)} (${escapeHtml(profile.player_tag)})`
+      : "";
+  }
+
+  if (!state.collection.length) {
+    cardCountBadge.textContent = "0 cards";
+    collectionHint.style.display = "";
+    generateBtn.disabled = true;
+    return;
+  }
+
   getSortedCollection().forEach(card => {
     const chip = document.createElement("div");
     chip.className = "card-chip";
-    chip.innerHTML = `<span class="chip-level">${card.level}</span><span class="chip-name">${escapeHtml(card.name)}</span><button class="chip-remove" title="Remove">&times;</button>`;
-    chip.querySelector(".chip-remove").addEventListener("click", () => {
-      state.collection = state.collection.filter(c => c.name !== card.name);
-      saveCollectionToStorage();
-      renderCollection();
-      renderMyDecks();
-    });
+    chip.innerHTML = `<span class="chip-level">${card.level}</span><span class="chip-name">${escapeHtml(card.name)}</span>`;
     cardGrid.appendChild(chip);
   });
+
   const count = state.collection.length;
   cardCountBadge.textContent = `${count} card${count !== 1 ? "s" : ""}`;
-  collectionHint.style.display = count > 0 ? "none" : "";
+  collectionHint.style.display = "none";
   generateBtn.disabled = count < 8;
 }
 
@@ -438,7 +533,10 @@ function renderCollection() {
 
 async function loadSavedDecks() {
   try {
-    const res = await fetch("/api/saved-decks");
+    const url = state.activeProfileId
+      ? `/api/saved-decks?profile_id=${state.activeProfileId}`
+      : "/api/saved-decks";
+    const res = await fetch(url);
     const data = await res.json();
     state.savedDecks = data.decks || [];
     renderMyDecks();
@@ -466,7 +564,9 @@ function renderMyDecks() {
       return `<span class="mini-chip${isWin ? " win-con" : ""}">${escapeHtml(c.name)}</span>`;
     }).join("");
 
-    const sourceLbl = deck.source === "recommendation" ? "💡 Saved from AI" : "🔧 Manual build";
+    const sourceLbl = deck.source === "recommendation" ? "💡 Saved from AI"
+                    : deck.source === "api"            ? "📱 Imported from game"
+                    : "🔧 Manual build";
 
     el.innerHTML = `
       <div class="my-deck-card-header">
@@ -497,7 +597,7 @@ function isDeckStale(deck) {
   });
 }
 
-/** Pull win condition card names from a deck or its cards list */
+/** Pull win condition card names from a deck */
 function getWinCards(deck) {
   const wc = (deck.win_condition || "").toLowerCase();
   return new Set((deck.cards || []).map(c => c.name.toLowerCase()).filter(n => wc.includes(n)));
@@ -517,7 +617,6 @@ function openDeckBuilder(editId = null) {
     deckBuilderTitle.textContent = "Edit Deck";
     deckNameInput.value = deck.name;
     state.builder.slots = (deck.cards || []).map(c => ({ ...c }));
-    // Pad to 8 if needed
     while (state.builder.slots.length < 8) state.builder.slots.push(null);
   } else {
     deckBuilderTitle.textContent = "Build a Deck";
@@ -574,7 +673,6 @@ function renderSlots() {
     cardSlotsEl.appendChild(slot);
   });
 
-  // Update save button when name changes
   deckNameInput.onkeyup = () => {
     const filled = state.builder.slots.filter(Boolean).length;
     deckBuilderSave.disabled = filled < 8 || !deckNameInput.value.trim();
@@ -589,7 +687,6 @@ function toggleSlotPicker(slotIdx, slotEl) {
   state.builder.activeSlot = slotIdx;
   renderSlots();
 
-  // Position the dropdown near the slot (fixed positioning — no scroll offset)
   const rect = slotEl.getBoundingClientRect();
   slotPickerDropdown.style.top = `${rect.bottom + 4}px`;
   slotPickerDropdown.style.left = `${rect.left}px`;
@@ -610,13 +707,11 @@ function hideSlotPicker() {
 function renderSlotPickerList() {
   const q = slotPickerSearch.value.trim().toLowerCase();
   const inDeck = new Set(state.builder.slots.filter(Boolean).map(c => c.name.toLowerCase()));
-
-  // Show all collection cards filtered by query, with in-deck ones dimmed
   const cards = state.collection.filter(c => !q || c.name.toLowerCase().includes(q));
 
   slotPickerList.innerHTML = "";
   if (!cards.length) {
-    slotPickerList.innerHTML = '<li style="color:var(--text-muted);cursor:default">No cards match — add cards to your collection first</li>';
+    slotPickerList.innerHTML = '<li style="color:var(--text-muted);cursor:default">No cards match</li>';
     return;
   }
 
@@ -663,7 +758,6 @@ async function saveDeckFromBuilder() {
 
   try {
     if (state.builder.editingId) {
-      // Update existing
       const res = await fetch(`/api/saved-decks/${state.builder.editingId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -672,11 +766,10 @@ async function saveDeckFromBuilder() {
       const data = await res.json();
       if (data.error) { showBuilderError(data.error); return; }
     } else {
-      // Create new
       const res = await fetch("/api/saved-decks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, cards, source: "manual" }),
+        body: JSON.stringify({ name, cards, source: "manual", profile_id: state.activeProfileId }),
       });
       const data = await res.json();
       if (data.error) { showBuilderError(data.error); return; }
@@ -709,32 +802,27 @@ async function openDetailModal(deckId) {
   state.detail.deckData = deck;
   state.detail.analysis = null;
 
-  // Header
   detailDeckName.textContent = deck.name;
-  detailSourceLabel.textContent = deck.source === "recommendation" ? "💡 Saved from AI recommendation" : "🔧 Manually built deck";
+  detailSourceLabel.textContent = deck.source === "recommendation" ? "💡 Saved from AI recommendation"
+                                : deck.source === "api"            ? "📱 Imported from game"
+                                : "🔧 Manually built deck";
   detailMetaTags.innerHTML = "";
 
-  // Reset analysis panels
   analysisEmpty.style.display = "";
   analysisLoading.classList.remove("visible");
   analysisResult.classList.add("hidden");
   analysisResult.innerHTML = "";
 
-  // Reset chat
   detailChatMsgs.innerHTML = `<div class="chat-welcome" id="detail-chat-welcome"><p>💬 Ask me anything about this deck — card swaps, matchups, playstyle adjustments, or how to improve your win rate.</p></div>`;
 
-  // Render deck cards
   renderDetailCards(deck);
 
-  // Check staleness
   const stale = isDeckStale(deck);
   detailStaleWarn.classList.toggle("hidden", !stale);
 
-  // Open modal
   deckDetailModal.classList.remove("hidden");
   document.body.style.overflow = "hidden";
 
-  // Load existing analysis and chat in parallel
   try {
     const [analysisRes, chatRes] = await Promise.all([
       fetch(`/api/saved-decks/${deckId}/analysis`),
@@ -816,7 +904,6 @@ async function updateDeckLevels() {
   if (!state.detail.deckId || !state.detail.deckData) return;
   const deck = state.detail.deckData;
 
-  // Replace each card's level with the current collection level
   const updatedCards = (deck.cards || []).map(card => {
     const cur = state.collection.find(c => c.name.toLowerCase() === card.name.toLowerCase());
     return cur ? { ...card, level: cur.level, maxLevel: cur.maxLevel } : card;
@@ -830,12 +917,11 @@ async function updateDeckLevels() {
     });
     const data = await res.json();
     if (data.ok) {
-      // Updating cards also clears analysis on backend — reflect here
       state.detail.analysis = null;
+      const savedId = state.detail.deckId;
       await loadSavedDecks();
-      // Reload detail with refreshed deck data
       closeDetailModal();
-      await openDetailModal(state.detail.deckId || deck.id);
+      await openDetailModal(savedId);
     }
   } catch { /* ignore */ }
 }
@@ -846,7 +932,7 @@ async function updateDeckLevels() {
 async function runDeckAnalysis() {
   if (!state.detail.deckId || state.detail.analysisStreaming) return;
   if (!state.collection.length) {
-    alert("Please add your card collection first so the AI can suggest swaps.");
+    alert("Please select a player profile first so the AI can suggest swaps.");
     return;
   }
 
@@ -855,14 +941,17 @@ async function runDeckAnalysis() {
   analysisResult.classList.add("hidden");
   analysisResult.innerHTML = "";
   analysisLoading.classList.add("visible");
-  analysisStatusMsg.textContent = "Searching current meta...";
+  analysisStatusMsg.textContent = "Querying wiki for card data and meta context...";
 
   let accumulated = "";
   try {
     const res = await fetch(`/api/saved-decks/${state.detail.deckId}/analysis`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ collection: state.collection }),
+      body: JSON.stringify({
+        collection: state.collection,
+        player_tag: state.profiles.find(p => p.id === state.activeProfileId)?.player_tag ?? null,
+      }),
     });
 
     const reader = res.body.getReader();
@@ -880,10 +969,8 @@ async function runDeckAnalysis() {
         try {
           const msg = JSON.parse(line.slice(6));
           if (msg.error) { showAnalysisError(msg.error); return; }
-          if (msg.chunk) {
-            accumulated += msg.chunk;
-            updateAnalysisStatusMsg(accumulated);
-          }
+          if (msg.status) analysisStatusMsg.textContent = msg.status;
+          if (msg.chunk) { accumulated += msg.chunk; updateAnalysisStatusMsg(accumulated); }
           if (msg.done && msg.analysis) {
             state.detail.analysis = msg.analysis;
             analysisLoading.classList.remove("visible");
@@ -892,7 +979,6 @@ async function runDeckAnalysis() {
             return;
           }
           if (msg.done) {
-            // Parse manually as fallback
             const j0 = accumulated.indexOf("{"), j1 = accumulated.lastIndexOf("}");
             if (j0 !== -1 && j1 !== -1) {
               try {
@@ -1027,22 +1113,38 @@ async function sendDetailChatMessage() {
     const res = await fetch(`/api/saved-decks/${state.detail.deckId}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, collection: state.collection }),
+      body: JSON.stringify({
+        message,
+        collection: state.collection,
+        player_tag: state.profiles.find(p => p.id === state.activeProfileId)?.player_tag ?? null,
+      }),
     });
 
     if (!res.ok) { typing.remove(); const e = await res.json(); appendDetailChatMsg("assistant", `Error: ${e.error}`); return; }
 
-    typing.remove();
-    const msgEl = createStreamingBubble();
-    detailChatMsgs.appendChild(msgEl);
-    const bubble = msgEl.querySelector(".chat-bubble");
-    scrollEl(detailChatMsgs);
-
     let fullText = "";
-    await streamSSE(res, (chunk) => { fullText += chunk; bubble.textContent = fullText; scrollEl(detailChatMsgs); });
-
-    bubble.classList.remove("streaming");
-    addTimestamp(msgEl);
+    let bubbleStarted = false;
+    let msgEl, bubble;
+    await streamSSE(res,
+      (chunk) => {
+        if (!bubbleStarted) {
+          typing.remove();
+          msgEl = createStreamingBubble();
+          detailChatMsgs.appendChild(msgEl);
+          bubble = msgEl.querySelector(".chat-bubble");
+          bubbleStarted = true;
+          scrollEl(detailChatMsgs);
+        }
+        fullText += chunk;
+        bubble.textContent = fullText;
+        scrollEl(detailChatMsgs);
+      },
+      (msg) => {
+        if (msg.status) typing.innerHTML = `<span class="chat-tool-status">${escapeHtml(msg.status)}</span>`;
+      }
+    );
+    if (bubbleStarted) { bubble.classList.remove("streaming"); addTimestamp(msgEl); }
+    else typing.remove();
   } catch (err) {
     typing.remove();
     appendDetailChatMsg("assistant", `Connection error: ${err.message}`);
@@ -1075,7 +1177,7 @@ async function generateDecks() {
   state.deckIds = [];
 
   streamStatus.classList.add("visible");
-  streamMsg.textContent = "Searching for current meta information...";
+  streamMsg.textContent = "Analyzing collection — querying wiki for meta data...";
   setTimeout(() => resultsSection.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
 
   let accumulated = "";
@@ -1083,7 +1185,11 @@ async function generateDecks() {
     const res = await fetch("/api/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cards: state.collection }),
+      body: JSON.stringify({
+        cards: state.collection.filter(c => c.level >= (c.maxLevel || 16) - 2),
+        profile_id: state.activeProfileId,
+        player_tag: state.profiles.find(p => p.id === state.activeProfileId)?.player_tag ?? null,
+      }),
     });
 
     if (!res.ok) {
@@ -1095,6 +1201,7 @@ async function generateDecks() {
     await streamSSE(res,
       (chunk) => { accumulated += chunk; updateStreamStatus(accumulated); },
       (msg) => {
+        if (msg.status) streamMsg.textContent = msg.status;
         if (msg.done) {
           if (msg.deck_ids) state.deckIds = msg.deck_ids;
           const ok = tryRenderDecks(accumulated, state.deckIds);
@@ -1107,7 +1214,6 @@ async function generateDecks() {
   } finally {
     streamStatus.classList.remove("visible");
     generateBtn.disabled = state.collection.length < 8;
-    // Refresh history if open
     if (!historyList.classList.contains("hidden")) loadHistory();
   }
 }
@@ -1180,12 +1286,10 @@ function buildRecDeckCard(deck, idx, deckId = null) {
     </div>
   `;
 
-  // Save button
   const saveBtn = el.querySelector(".save-rec-btn");
   if (deckId && saveBtn) {
     saveBtn.addEventListener("click", async () => {
       if (saveBtn.classList.contains("saved")) return;
-      // Build cards array from collection levels
       const cards = (deck.cards || []).map(name => {
         const owned = state.collection.find(c => c.name.toLowerCase() === name.toLowerCase());
         return owned ? { name: owned.name, level: owned.level, maxLevel: owned.maxLevel } : { name, level: 1, maxLevel: 14 };
@@ -1195,7 +1299,12 @@ function buildRecDeckCard(deck, idx, deckId = null) {
         const res = await fetch("/api/saved-decks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: deck.name || `Saved Deck ${idx + 1}`, cards, source: "recommendation" }),
+          body: JSON.stringify({
+            name: deck.name || `Saved Deck ${idx + 1}`,
+            cards,
+            source: "recommendation",
+            profile_id: state.activeProfileId,
+          }),
         });
         const data = await res.json();
         if (!data.error) {
@@ -1207,7 +1316,6 @@ function buildRecDeckCard(deck, idx, deckId = null) {
     });
   }
 
-  // Discuss button
   const discussBtn = el.querySelector(".discuss-btn");
   if (deckId && discussBtn) {
     discussBtn.addEventListener("click", () => openRecChat(deckId, deck));
@@ -1275,21 +1383,37 @@ async function sendRecChatMessage() {
     const res = await fetch(`/api/decks/${state.recChat.deckId}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({
+        message,
+        player_tag: state.profiles.find(p => p.id === state.activeProfileId)?.player_tag ?? null,
+      }),
     });
 
     if (!res.ok) { typing.remove(); const e = await res.json(); appendRecChatMsg("assistant", `Error: ${e.error}`); return; }
 
-    typing.remove();
-    const msgEl = createStreamingBubble();
-    chatMessages.appendChild(msgEl);
-    const bubble = msgEl.querySelector(".chat-bubble");
-    scrollEl(chatMessages);
-
     let fullText = "";
-    await streamSSE(res, chunk => { fullText += chunk; bubble.textContent = fullText; scrollEl(chatMessages); });
-    bubble.classList.remove("streaming");
-    addTimestamp(msgEl);
+    let bubbleStarted = false;
+    let msgEl, bubble;
+    await streamSSE(res,
+      (chunk) => {
+        if (!bubbleStarted) {
+          typing.remove();
+          msgEl = createStreamingBubble();
+          chatMessages.appendChild(msgEl);
+          bubble = msgEl.querySelector(".chat-bubble");
+          bubbleStarted = true;
+          scrollEl(chatMessages);
+        }
+        fullText += chunk;
+        bubble.textContent = fullText;
+        scrollEl(chatMessages);
+      },
+      (msg) => {
+        if (msg.status) typing.innerHTML = `<span class="chat-tool-status">${escapeHtml(msg.status)}</span>`;
+      }
+    );
+    if (bubbleStarted) { bubble.classList.remove("streaming"); addTimestamp(msgEl); }
+    else typing.remove();
   } catch (err) {
     typing.remove();
     appendRecChatMsg("assistant", `Connection error: ${err.message}`);
@@ -1327,7 +1451,10 @@ async function loadHistory() {
   historyEmpty.classList.add("hidden");
   historyItems.innerHTML = "";
   try {
-    const res = await fetch("/api/sessions");
+    const url = state.activeProfileId
+      ? `/api/sessions?profile_id=${state.activeProfileId}`
+      : "/api/sessions";
+    const res = await fetch(url);
     const data = await res.json();
     historyLoaded = true;
     historyLoading.classList.add("hidden");
@@ -1342,7 +1469,6 @@ async function loadHistory() {
 }
 
 function buildHistoryItem(session) {
-  // Staleness: compare session's stored card levels vs current collection
   const sessionCards = JSON.parse(session.cards_json || "[]");
   const stale = sessionCards.some(sc => {
     const cur = state.collection.find(c => c.name.toLowerCase() === sc.name.toLowerCase());
@@ -1464,10 +1590,6 @@ function scrollEl(el) { el.scrollTop = el.scrollHeight; }
 // SSE STREAMING HELPER
 // ══════════════════════════════════════════════════════════════════════════
 
-/**
- * Read an SSE stream. Calls onChunk(text) for each chunk, onEvent(msg) for full events.
- * Returns when the stream ends or an error/done event is received.
- */
 async function streamSSE(response, onChunk, onEvent = null) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -1488,7 +1610,6 @@ async function streamSSE(response, onChunk, onEvent = null) {
         if (msg.done) return;
       } catch (e) {
         if (e.message && !e.message.startsWith("JSON")) throw e;
-        // ignore JSON parse errors for partial lines
       }
     }
   }
@@ -1505,14 +1626,6 @@ function escapeHtml(str) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
-}
-
-function highlightMatch(name, query) {
-  const idx = name.toLowerCase().indexOf(query);
-  if (idx === -1) return escapeHtml(name);
-  return escapeHtml(name.slice(0, idx)) +
-    `<mark>${escapeHtml(name.slice(idx, idx + query.length))}</mark>` +
-    escapeHtml(name.slice(idx + query.length));
 }
 
 

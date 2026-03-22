@@ -80,6 +80,19 @@ class ClashRoyaleAPI:
                 "rarity": card.get("rarity", ""),
             })
 
+        # Extract current battle deck (same level normalization)
+        current_deck = []
+        for card in result.get("currentDeck", []):
+            rarity = card.get("rarity", "").lower()
+            offset = rarity_offset.get(rarity, 0)
+            current_deck.append({
+                "name": card.get("name", "Unknown"),
+                "level": card.get("level", 1) + offset,
+                "maxLevel": 16,
+                "elixirCost": card.get("elixirCost"),
+                "rarity": card.get("rarity", ""),
+            })
+
         player_name = result.get("name", "Unknown Player")
         trophies = result.get("trophies", 0)
         arena = result.get("arena", {}).get("name", "")
@@ -93,6 +106,7 @@ class ClashRoyaleAPI:
             },
             "cards": cards,
             "total": len(cards),
+            "current_deck": current_deck,
         }
 
     def get_all_cards(self) -> dict:

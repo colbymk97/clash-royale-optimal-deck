@@ -4,6 +4,7 @@ from flask import Flask, request, jsonify, render_template, Response, stream_wit
 from dotenv import load_dotenv
 from deck_analyzer import DeckAnalyzer
 from clash_api import ClashRoyaleAPI
+from cr_context import cr_available
 import db
 
 load_dotenv()
@@ -24,29 +25,136 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/cr-status")
+def cr_status():
+    available = cr_available()
+    message = (
+        "Clash Royale live data tools are active. The AI can query your battle history and recent decks."
+        if available
+        else "Clash Royale live data tools are not available: set CLASH_ROYALE_API_KEY (or CLASH_ROYALE_API_TOKEN) in your .env file."
+    )
+    return jsonify({"available": available, "message": message})
+
+
 # ── Clash Royale API proxies ───────────────────────────────────────────────
-
-@app.route("/api/fetch-cards/<player_tag>")
-def fetch_player_cards(player_tag):
-    if not clash_api.api_key:
-        return jsonify({"error": "Clash Royale API key not configured. Please add cards manually."}), 503
-    tag = player_tag.strip()
-    if not tag.startswith("#"):
-        tag = "#" + tag
-    result = clash_api.get_player_cards(tag)
-    if "error" in result:
-        return jsonify(result), 400
-    return jsonify(result)
-
 
 @app.route("/api/all-cards")
 def get_all_cards():
     if not clash_api.api_key:
-        return jsonify({"cards": _fallback_card_list()})
+        return jsonify({"cards": []})
     result = clash_api.get_all_cards()
     if "error" in result:
-        return jsonify({"cards": _fallback_card_list()})
+        return jsonify({"cards": []})
     return jsonify(result)
+
+
+# ── Profiles ───────────────────────────────────────────────────────────────
+
+@app.route("/api/profiles", methods=["GET"])
+def list_profiles():
+    return jsonify({"profiles": db.list_profiles()})
+
+
+@app.route("/api/profiles", methods=["POST"])
+def create_profile():
+    """Create a profile by player tag — fetches from CR API automatically."""
+    data = request.get_json() or {}
+    tag = data.get("player_tag", "").strip()
+    if not tag:
+        return jsonify({"error": "player_tag is required"}), 400
+    if not tag.startswith("#"):
+        tag = "#" + tag
+
+    if not clash_api.api_key:
+        return jsonify({"error": "Clash Royale API key not configured on this server."}), 503
+
+    # Check for duplicate
+    existing = db.get_profile_by_tag(tag)
+    if existing:
+        return jsonify({"error": f"A profile for {tag} already exists."}), 409
+
+    result = clash_api.get_player_cards(tag)
+    if "error" in result:
+        return jsonify(result), 400
+
+    player = result["player"]
+    cards = _dedup_cards(result["cards"])
+    profile_id = db.create_profile(
+        player_tag=player["tag"],
+        player_name=player["name"],
+        trophies=player["trophies"],
+        arena=player["arena"],
+        collection=cards,
+    )
+
+    # Auto-import current battle deck if present
+    current_deck = result.get("current_deck", [])
+    if len(current_deck) == 8:
+        deck_name = f"{player['name']}'s Deck"
+        db.create_saved_deck(name=deck_name, cards=current_deck, source="api", profile_id=profile_id)
+
+    profile = db.get_profile(profile_id)
+    return jsonify({"profile": profile}), 201
+
+
+@app.route("/api/profiles/<int:profile_id>", methods=["GET"])
+def get_profile(profile_id):
+    profile = db.get_profile(profile_id)
+    if not profile:
+        return jsonify({"error": "Profile not found"}), 404
+    return jsonify({"profile": profile})
+
+
+@app.route("/api/profiles/<int:profile_id>", methods=["DELETE"])
+def delete_profile(profile_id):
+    if not db.delete_profile(profile_id):
+        return jsonify({"error": "Profile not found"}), 404
+    return jsonify({"ok": True})
+
+
+@app.route("/api/profiles/<int:profile_id>/sync", methods=["POST"])
+def sync_profile(profile_id):
+    """Re-fetch cards from CR API and update the profile."""
+    profile = db.get_profile(profile_id)
+    if not profile:
+        return jsonify({"error": "Profile not found"}), 404
+
+    if not clash_api.api_key:
+        return jsonify({"error": "Clash Royale API key not configured on this server."}), 503
+
+    result = clash_api.get_player_cards(profile["player_tag"])
+    if "error" in result:
+        return jsonify(result), 400
+
+    player = result["player"]
+    cards = _dedup_cards(result["cards"])
+    db.update_profile_sync(
+        profile_id=profile_id,
+        player_name=player["name"],
+        trophies=player["trophies"],
+        arena=player["arena"],
+        collection=cards,
+    )
+
+    updated = db.get_profile(profile_id)
+    return jsonify({"profile": updated})
+
+
+def _dedup_cards(cards: list) -> list:
+    seen = set()
+    result = []
+    for c in cards:
+        key = c["name"].lower()
+        if key not in seen:
+            seen.add(key)
+            result.append({
+                "name": c["name"],
+                "level": c["level"],
+                "maxLevel": c.get("maxLevel", 16),
+                "elixirCost": c.get("elixirCost"),
+                "rarity": c.get("rarity", ""),
+            })
+    return result
 
 
 # ── Recommendation Analysis (streaming) ───────────────────────────────────
@@ -57,17 +165,27 @@ def analyze_deck():
     if not data:
         return jsonify({"error": "No data provided"}), 400
     cards = data.get("cards", [])
+    profile_id = data.get("profile_id")
     if not cards:
         return jsonify({"error": "No cards provided"}), 400
     if len(cards) < 8:
         return jsonify({"error": "You need at least 8 cards to build a deck"}), 400
 
+    player_tag = None
+    if profile_id:
+        profile = db.get_profile(profile_id)
+        if profile:
+            player_tag = profile["player_tag"]
+
     def generate():
         accumulated = ""
         try:
-            for chunk in deck_analyzer.analyze_stream(cards):
-                accumulated += chunk
-                yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+            for kind, value in deck_analyzer.analyze_stream(cards, player_tag=player_tag):
+                if kind == "status":
+                    yield f"data: {json.dumps({'status': value})}\n\n"
+                else:
+                    accumulated += value
+                    yield f"data: {json.dumps({'chunk': value})}\n\n"
 
             save_info = {}
             try:
@@ -78,6 +196,7 @@ def analyze_deck():
                         cards=cards,
                         meta_context=parsed.get("meta_context", ""),
                         decks=parsed.get("decks", []),
+                        profile_id=profile_id,
                     )
             except Exception:
                 pass
@@ -97,7 +216,8 @@ def analyze_deck():
 
 @app.route("/api/sessions")
 def list_sessions():
-    return jsonify({"sessions": db.list_sessions()})
+    profile_id = request.args.get("profile_id", type=int)
+    return jsonify({"sessions": db.list_sessions(profile_id=profile_id)})
 
 
 @app.route("/api/sessions/<int:session_id>")
@@ -127,17 +247,22 @@ def post_chat(deck_id):
     if not deck_data:
         return jsonify({"error": "Deck not found"}), 404
 
+    player_tag = data.get("player_tag")
     history = db.get_chat_history(deck_id)
     db.save_chat_message(deck_id, "user", user_message)
 
     def generate():
         full_response = ""
         try:
-            for chunk in deck_analyzer.chat_stream(
-                deck_data["deck"], deck_data["cards"], history, user_message
+            for kind, value in deck_analyzer.chat_stream(
+                deck_data["deck"], deck_data["cards"], history, user_message,
+                player_tag=player_tag,
             ):
-                full_response += chunk
-                yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+                if kind == "status":
+                    yield f"data: {json.dumps({'status': value})}\n\n"
+                else:
+                    full_response += value
+                    yield f"data: {json.dumps({'chunk': value})}\n\n"
             db.save_chat_message(deck_id, "assistant", full_response)
             yield f"data: {json.dumps({'done': True})}\n\n"
         except Exception as e:
@@ -154,7 +279,8 @@ def post_chat(deck_id):
 
 @app.route("/api/saved-decks", methods=["GET"])
 def list_saved_decks():
-    return jsonify({"decks": db.list_saved_decks()})
+    profile_id = request.args.get("profile_id", type=int)
+    return jsonify({"decks": db.list_saved_decks(profile_id=profile_id)})
 
 
 @app.route("/api/saved-decks", methods=["POST"])
@@ -163,6 +289,7 @@ def create_saved_deck():
     name = data.get("name", "My Deck").strip() or "My Deck"
     cards = data.get("cards", [])
     source = data.get("source", "manual")
+    profile_id = data.get("profile_id")
 
     if len(cards) != 8:
         return jsonify({"error": "Deck must have exactly 8 cards"}), 400
@@ -170,7 +297,7 @@ def create_saved_deck():
     if len(names) != len(set(n.lower() for n in names)):
         return jsonify({"error": "Deck cannot contain duplicate cards"}), 400
 
-    deck_id = db.create_saved_deck(name=name, cards=cards, source=source)
+    deck_id = db.create_saved_deck(name=name, cards=cards, source=source, profile_id=profile_id)
     return jsonify({"id": deck_id}), 201
 
 
@@ -194,7 +321,6 @@ def update_saved_deck(deck_id):
         names = [c["name"] for c in cards]
         if len(names) != len(set(n.lower() for n in names)):
             return jsonify({"error": "Deck cannot contain duplicate cards"}), 400
-        # Clear analysis and chat when cards change so a fresh analysis can be run
         db.clear_saved_deck_analysis(deck_id)
 
     if not db.update_saved_deck(deck_id, name=name, cards=cards):
@@ -209,7 +335,7 @@ def delete_saved_deck(deck_id):
     return jsonify({"ok": True})
 
 
-# ── Saved Deck Analysis (streaming, run once) ─────────────────────────────
+# ── Saved Deck Analysis (streaming) ───────────────────────────────────────
 
 @app.route("/api/saved-decks/<int:deck_id>/analysis", methods=["GET"])
 def get_saved_deck_analysis(deck_id):
@@ -226,13 +352,17 @@ def run_saved_deck_analysis(deck_id):
 
     data = request.get_json() or {}
     collection = data.get("collection", [])
+    player_tag = data.get("player_tag")
 
     def generate():
         accumulated = ""
         try:
-            for chunk in deck_analyzer.analyze_saved_deck_stream(deck["cards"], collection):
-                accumulated += chunk
-                yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+            for kind, value in deck_analyzer.analyze_saved_deck_stream(deck["cards"], collection, player_tag=player_tag):
+                if kind == "status":
+                    yield f"data: {json.dumps({'status': value})}\n\n"
+                else:
+                    accumulated += value
+                    yield f"data: {json.dumps({'chunk': value})}\n\n"
 
             try:
                 j0, j1 = accumulated.find("{"), accumulated.rfind("}")
@@ -268,6 +398,7 @@ def post_saved_deck_chat(deck_id):
     data = request.get_json() or {}
     user_message = data.get("message", "").strip()
     collection = data.get("collection", [])
+    player_tag = data.get("player_tag")
 
     if not user_message:
         return jsonify({"error": "No message provided"}), 400
@@ -283,11 +414,15 @@ def post_saved_deck_chat(deck_id):
     def generate():
         full_response = ""
         try:
-            for chunk in deck_analyzer.saved_deck_chat_stream(
-                deck["cards"], analysis, collection, history, user_message
+            for kind, value in deck_analyzer.saved_deck_chat_stream(
+                deck["cards"], analysis, collection, history, user_message,
+                player_tag=player_tag,
             ):
-                full_response += chunk
-                yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+                if kind == "status":
+                    yield f"data: {json.dumps({'status': value})}\n\n"
+                else:
+                    full_response += value
+                    yield f"data: {json.dumps({'chunk': value})}\n\n"
             db.append_saved_deck_chat(deck_id, "assistant", full_response)
             yield f"data: {json.dumps({'done': True})}\n\n"
         except Exception as e:
@@ -298,36 +433,6 @@ def post_saved_deck_chat(deck_id):
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-
-
-# ── Helpers ────────────────────────────────────────────────────────────────
-
-def _fallback_card_list():
-    return [
-        "Archer Queen", "Archers", "Baby Dragon", "Balloon", "Bandit",
-        "Barbarian Barrel", "Barbarians", "Bats", "Battle Healer", "Battle Ram",
-        "Bomb Tower", "Bowler", "Cannon", "Cannon Cart", "Clone",
-        "Dark Prince", "Dart Goblin", "Earthquake", "Electro Dragon",
-        "Electro Giant", "Electro Spirit", "Electro Wizard", "Elite Barbarians",
-        "Executioner", "Fire Spirit", "Fireball", "Fisherman", "Flying Machine",
-        "Freeze", "Giant", "Giant Skeleton", "Goblin Barrel", "Goblin Cage",
-        "Goblin Gang", "Goblin Giant", "Goblin Machine", "Goblins",
-        "Golden Knight", "Golem", "Grand Warden", "Guards", "Hunter",
-        "Ice Golem", "Ice Spirit", "Ice Wizard", "Inferno Dragon",
-        "Inferno Tower", "Knight", "Lava Hound", "Lumberjack",
-        "Magic Archer", "Mega Knight", "Mega Minion", "Mighty Miner",
-        "Mini P.E.K.K.A", "Minion Horde", "Minions", "Monk",
-        "Mortar", "Musketeer", "Night Witch", "P.E.K.K.A", "Phoenix",
-        "Poison", "Prince", "Princess", "Ram Rider", "Rage",
-        "Rocket", "Royal Delivery", "Royal Ghost", "Royal Giant",
-        "Royal Hogs", "Royal Recruits", "Skeleton Army", "Skeleton Barrel",
-        "Skeleton Dragons", "Skeleton King", "Skeletons", "Sparky",
-        "Spear Goblins", "Tesla", "The Log", "Three Musketeers",
-        "Tombstone", "Tornado", "Valkyrie", "Wall Breakers",
-        "Witch", "Wizard", "X-Bow", "Zap", "Zappies",
-        "Goblin Drill", "Little Prince", "Hog Rider", "Electro Bat",
-        "Super Witch", "Firecracker",
-    ]
 
 
 if __name__ == "__main__":

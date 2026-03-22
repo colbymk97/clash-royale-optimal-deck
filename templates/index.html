@@ -16,41 +16,39 @@
 
   <main class="container">
 
-    <!-- Step 1: Card collection ──────────────────────────────────────────── -->
-    <section class="card-section" id="import-section">
-      <h2>Step 1: Add Your Cards</h2>
-      <div class="import-tabs">
-        <button class="tab-btn active" data-tab="manual">Manual Entry</button>
-        <button class="tab-btn" data-tab="tag">Import by Player Tag</button>
+    <!-- Step 1: Player Profiles ────────────────────────────────────────── -->
+    <section class="card-section" id="profile-section">
+      <div class="section-header">
+        <h2>Player Profiles</h2>
+        <button id="add-profile-btn" class="btn btn-primary btn-sm">+ Add Player</button>
       </div>
 
-      <div class="tab-content active" id="tab-manual">
-        <div class="add-card-row">
-          <div class="search-wrap">
-            <input type="text" id="card-search" placeholder="Search for a card..." autocomplete="off" />
-            <ul id="card-suggestions" class="suggestions-list hidden"></ul>
-          </div>
-          <select id="card-level"><option value="">Level</option></select>
-          <button id="add-card-btn" class="btn btn-primary">Add Card</button>
-        </div>
-        <p class="hint">Each card can only be added once — re-adding a card updates its level.</p>
-      </div>
-
-      <div class="tab-content" id="tab-tag">
+      <!-- Add profile form -->
+      <div id="add-profile-form" class="add-profile-form hidden">
         <div class="tag-row">
-          <input type="text" id="player-tag" placeholder="#ABC123XYZ" autocomplete="off" />
-          <button id="fetch-cards-btn" class="btn btn-primary">Import Cards</button>
+          <input type="text" id="new-profile-tag" placeholder="#ABC123XYZ" autocomplete="off" />
+          <button id="connect-profile-btn" class="btn btn-primary">Connect</button>
+          <button id="cancel-add-profile" class="btn btn-ghost">Cancel</button>
         </div>
-        <p class="hint">Enter your Clash Royale player tag to automatically import your unlocked cards and levels.</p>
-        <p id="tag-status" class="status-msg hidden"></p>
+        <p id="add-profile-status" class="status-msg hidden"></p>
       </div>
+
+      <!-- Empty state -->
+      <div id="profiles-empty" class="empty-state">
+        No profiles yet. Add your Clash Royale player tag to import your cards and decks.
+      </div>
+
+      <!-- Profile cards -->
+      <div id="profiles-grid" class="profiles-grid"></div>
     </section>
 
     <!-- Collection display ──────────────────────────────────────────────── -->
     <section class="card-section" id="collection-section">
       <div class="collection-header">
-        <h2>Your Collection <span id="card-count" class="badge">0 cards</span></h2>
-        <button id="clear-cards-btn" class="btn btn-ghost btn-sm">Clear All</button>
+        <div>
+          <h2>Card Collection <span id="card-count" class="badge">0 cards</span></h2>
+          <p id="collection-profile-label" class="hint" style="margin:0"></p>
+        </div>
       </div>
       <div class="collection-sort-bar">
         <span class="sort-label">Sort:</span>
@@ -59,7 +57,7 @@
         <button class="sort-btn" data-sort="elixir">Elixir</button>
       </div>
       <div id="card-grid" class="card-grid"></div>
-      <p id="collection-hint" class="hint center">Add at least 8 cards to generate deck suggestions.</p>
+      <p id="collection-hint" class="hint center">Select a player profile above to load their card collection.</p>
     </section>
 
     <!-- My Decks ─────────────────────────────────────────────────────────── -->
