@@ -92,8 +92,10 @@ class DeckAnalyzer:
     def _buffered_agent(self, system: str, messages: list, max_tokens: int, label: str):
         """
         Non-streaming agentic loop for JSON output (analyze functions).
-        Yields ("status", str) during tool rounds, ("text", str) for the final response.
+        Yields ("status", str) during tool rounds, ("text", str) for the final response,
+        and ("usage", dict) once at the end with cumulative token counts.
         """
+        usage_totals = {"input_tokens": 0, "output_tokens": 0}
         for _ in range(10):
             resp = self.client.messages.create(
                 model="claude-sonnet-4-6",
@@ -102,6 +104,11 @@ class DeckAnalyzer:
                 tools=_all_tools(),
                 messages=messages,
             )
+            try:
+                usage_totals["input_tokens"] += resp.usage.input_tokens
+                usage_totals["output_tokens"] += resp.usage.output_tokens
+            except Exception:
+                pass
 
             if resp.stop_reason == "tool_use":
                 tool_blocks = [b for b in resp.content if b.type == "tool_use"]
@@ -120,6 +127,8 @@ class DeckAnalyzer:
                 for block in resp.content:
                     if hasattr(block, "text") and block.text:
                         yield ("text", block.text)
+                cost = (usage_totals["input_tokens"] * 3 + usage_totals["output_tokens"] * 15) / 1_000_000
+                yield ("usage", {**usage_totals, "cost": round(cost, 6)})
                 self._log_usage_msg(label, resp)
                 return
 
@@ -129,8 +138,10 @@ class DeckAnalyzer:
         - No tools: text yielded as a fast burst (buffered first call).
         - Tools used: status events (before any text), then true word-by-word streaming for the
           final response. Status events always precede text, so JS typing-indicator logic is simple.
-        Yields ("status", str) and ("text", str) tuples.
+        Yields ("status", str), ("text", str), and ("usage", dict) tuples.
         """
+        usage_totals = {"input_tokens": 0, "output_tokens": 0}
+
         # First call: buffer so we commit nothing to the client until we know the outcome
         buffered: list[str] = []
         with self.client.messages.stream(
@@ -143,11 +154,18 @@ class DeckAnalyzer:
             for chunk in self._stream_text(stream):
                 buffered.append(chunk)
             final_msg = stream.get_final_message()
+            try:
+                usage_totals["input_tokens"] += final_msg.usage.input_tokens
+                usage_totals["output_tokens"] += final_msg.usage.output_tokens
+            except Exception:
+                pass
             self._log_usage_msg(label, final_msg)
 
         if final_msg.stop_reason == "end_turn":
             for chunk in buffered:
                 yield ("text", chunk)
+            cost = (usage_totals["input_tokens"] * 3 + usage_totals["output_tokens"] * 15) / 1_000_000
+            yield ("usage", {**usage_totals, "cost": round(cost, 6)})
             return
 
         # Tool use triggered — discard pre-tool buffered text, handle rounds
@@ -172,6 +190,11 @@ class DeckAnalyzer:
                 tools=_all_tools(),
                 messages=messages,
             )
+            try:
+                usage_totals["input_tokens"] += resp.usage.input_tokens
+                usage_totals["output_tokens"] += resp.usage.output_tokens
+            except Exception:
+                pass
             if resp.stop_reason == "tool_use":
                 tool_blocks = [b for b in resp.content if b.type == "tool_use"]
                 yield ("status", _tool_status(tool_blocks))
@@ -194,7 +217,15 @@ class DeckAnalyzer:
                 ) as stream:
                     for chunk in self._stream_text(stream):
                         yield ("text", chunk)
-                    self._log_usage(label + "-final", stream)
+                    final_msg2 = stream.get_final_message()
+                    try:
+                        usage_totals["input_tokens"] += final_msg2.usage.input_tokens
+                        usage_totals["output_tokens"] += final_msg2.usage.output_tokens
+                    except Exception:
+                        pass
+                    self._log_usage_msg(label + "-final", final_msg2)
+                cost = (usage_totals["input_tokens"] * 3 + usage_totals["output_tokens"] * 15) / 1_000_000
+                yield ("usage", {**usage_totals, "cost": round(cost, 6)})
                 return
 
     # ── Public API ──────────────────────────────────────────────────────────
