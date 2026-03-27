@@ -129,3 +129,56 @@ class ClashRoyaleAPI:
             })
 
         return {"cards": sorted(cards, key=lambda c: c["name"])}
+
+    def get_player_battlelog(self, player_tag: str) -> dict:
+        """Fetch a player's recent battle log."""
+        encoded_tag = player_tag.replace("#", "%23")
+        result = self._get(f"/players/{encoded_tag}/battlelog")
+
+        if "error" in result:
+            return result
+
+        battles_raw = result if isinstance(result, list) else result.get("items", [])
+
+        rarity_offset = {
+            "common": 0, "rare": 2, "epic": 5, "legendary": 8, "champion": 10,
+        }
+
+        battles = []
+        for b in battles_raw:
+            team = (b.get("team") or [{}])[0]
+            opp = (b.get("opponent") or [{}])[0]
+            team_crowns = team.get("crowns", 0)
+            opp_crowns = opp.get("crowns", 0)
+
+            def norm_cards(card_list):
+                out = []
+                for c in card_list:
+                    rarity = c.get("rarity", "").lower()
+                    offset = rarity_offset.get(rarity, 0)
+                    out.append({
+                        "name": c.get("name", "Unknown"),
+                        "level": c.get("level", 1) + offset,
+                        "elixirCost": c.get("elixirCost"),
+                        "rarity": c.get("rarity", ""),
+                    })
+                return out
+
+            battles.append({
+                "battleTime": b.get("battleTime", ""),
+                "gameMode": b.get("gameMode", {}).get("name", ""),
+                "arena": b.get("arena", {}).get("name", ""),
+                "result": "win" if team_crowns > opp_crowns else ("draw" if team_crowns == opp_crowns else "loss"),
+                "team_crowns": team_crowns,
+                "opponent_crowns": opp_crowns,
+                "team_name": team.get("name", ""),
+                "team_tag": team.get("tag", ""),
+                "team_trophies": team.get("startingTrophies", team.get("trophies", 0)),
+                "team_cards": norm_cards(team.get("cards", [])),
+                "opponent_name": opp.get("name", ""),
+                "opponent_tag": opp.get("tag", ""),
+                "opponent_trophies": opp.get("startingTrophies", opp.get("trophies", 0)),
+                "opponent_cards": norm_cards(opp.get("cards", [])),
+            })
+
+        return {"battles": battles}

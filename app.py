@@ -93,6 +93,14 @@ def create_profile():
         deck_name = f"{player['name']}'s Deck"
         db.create_saved_deck(name=deck_name, cards=current_deck, source="api", profile_id=profile_id)
 
+    # Auto-import battle log
+    try:
+        blog = clash_api.get_player_battlelog(player["tag"])
+        if "battles" in blog:
+            db.save_battles(profile_id, blog["battles"])
+    except Exception:
+        pass
+
     profile = db.get_profile(profile_id)
     return jsonify({"profile": profile}), 201
 
@@ -136,8 +144,17 @@ def sync_profile(profile_id):
         collection=cards,
     )
 
+    # Sync battle log too
+    battle_count = 0
+    try:
+        blog = clash_api.get_player_battlelog(profile["player_tag"])
+        if "battles" in blog:
+            battle_count = db.save_battles(profile_id, blog["battles"])
+    except Exception:
+        pass
+
     updated = db.get_profile(profile_id)
-    return jsonify({"profile": updated})
+    return jsonify({"profile": updated, "new_battles": battle_count})
 
 
 def _dedup_cards(cards: list) -> list:
@@ -171,17 +188,32 @@ def analyze_deck():
     if len(cards) < 8:
         return jsonify({"error": "You need at least 8 cards to build a deck"}), 400
 
+    # New optional parameters
+    num_decks = min(max(int(data.get("num_decks", 3)), 1), 10)
+    strategies = data.get("strategies") or None  # list of archetype strings or None
+    selected_cards = data.get("selected_cards") or None  # list of card name strings or None
+
     player_tag = None
+    previous_decks = None
     if profile_id:
         profile = db.get_profile(profile_id)
         if profile:
             player_tag = profile["player_tag"]
+            # Get non-archived saved deck card lists to avoid duplicate recs
+            active_decks = db.get_active_saved_deck_cards(profile_id)
+            if active_decks:
+                previous_decks = active_decks
 
     def generate():
         accumulated = ""
         usage_data = None
         try:
-            for kind, value in deck_analyzer.analyze_stream(cards, player_tag=player_tag):
+            for kind, value in deck_analyzer.analyze_stream(
+                cards, player_tag=player_tag,
+                num_decks=num_decks, strategies=strategies,
+                selected_cards=selected_cards,
+                previous_decks=previous_decks,
+            ):
                 if kind == "status":
                     yield f"data: {json.dumps({'status': value})}\n\n"
                 elif kind == "usage":
@@ -286,7 +318,8 @@ def post_chat(deck_id):
 @app.route("/api/saved-decks", methods=["GET"])
 def list_saved_decks():
     profile_id = request.args.get("profile_id", type=int)
-    return jsonify({"decks": db.list_saved_decks(profile_id=profile_id)})
+    include_archived = request.args.get("include_archived", "false").lower() == "true"
+    return jsonify({"decks": db.list_saved_decks(profile_id=profile_id, include_archived=include_archived)})
 
 
 @app.route("/api/saved-decks", methods=["POST"])
@@ -437,6 +470,76 @@ def post_saved_deck_chat(deck_id):
                     yield f"data: {json.dumps({'chunk': value})}\n\n"
             db.append_saved_deck_chat(deck_id, "assistant", full_response)
             yield f"data: {json.dumps({'done': True, 'usage': usage_data})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ── Deck Archiving ────────────────────────────────────────────────────────
+
+@app.route("/api/saved-decks/<int:deck_id>/archive", methods=["POST"])
+def toggle_archive_deck(deck_id):
+    data = request.get_json() or {}
+    archived = data.get("archived", True)
+    if not db.archive_saved_deck(deck_id, archived):
+        return jsonify({"error": "Deck not found"}), 404
+    return jsonify({"ok": True, "archived": archived})
+
+
+# ── Battle Log ────────────────────────────────────────────────────────────
+
+@app.route("/api/profiles/<int:profile_id>/battles", methods=["GET"])
+def list_battles(profile_id):
+    if not db.get_profile(profile_id):
+        return jsonify({"error": "Profile not found"}), 404
+    return jsonify({"battles": db.list_battles(profile_id)})
+
+
+@app.route("/api/profiles/<int:profile_id>/battles/sync", methods=["POST"])
+def sync_battles(profile_id):
+    profile = db.get_profile(profile_id)
+    if not profile:
+        return jsonify({"error": "Profile not found"}), 404
+    if not clash_api.api_key:
+        return jsonify({"error": "Clash Royale API key not configured."}), 503
+
+    blog = clash_api.get_player_battlelog(profile["player_tag"])
+    if "error" in blog:
+        return jsonify(blog), 400
+    count = db.save_battles(profile_id, blog["battles"])
+    return jsonify({"new_battles": count, "battles": db.list_battles(profile_id)})
+
+
+@app.route("/api/battles/<int:battle_id>/analysis", methods=["POST"])
+def run_battle_analysis(battle_id):
+    battle = db.get_battle(battle_id)
+    if not battle:
+        return jsonify({"error": "Battle not found"}), 404
+
+    def generate():
+        accumulated = ""
+        try:
+            for kind, value in deck_analyzer.analyze_battle_stream(battle):
+                if kind == "status":
+                    yield f"data: {json.dumps({'status': value})}\n\n"
+                else:
+                    accumulated += value
+                    yield f"data: {json.dumps({'chunk': value})}\n\n"
+            try:
+                j0, j1 = accumulated.find("{"), accumulated.rfind("}")
+                if j0 != -1 and j1 != -1:
+                    parsed = json.loads(accumulated[j0:j1 + 1])
+                    db.save_battle_analysis(battle_id, parsed)
+                    yield f"data: {json.dumps({'done': True, 'analysis': parsed})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'done': True})}\n\n"
+            except Exception:
+                yield f"data: {json.dumps({'done': True})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 

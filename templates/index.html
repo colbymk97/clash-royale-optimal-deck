@@ -67,7 +67,10 @@
           <h2>My Decks <span id="my-decks-count" class="badge">0</span></h2>
           <p class="hint" style="margin:0">Save recommendations or build your own, then fine-tune with AI</p>
         </div>
-        <button id="new-deck-btn" class="btn btn-primary btn-sm">+ New Deck</button>
+        <div class="section-header-actions">
+          <button id="show-archived-btn" class="btn btn-ghost btn-sm">Show Archived</button>
+          <button id="new-deck-btn" class="btn btn-primary btn-sm">+ New Deck</button>
+        </div>
       </div>
       <div id="my-decks-empty" class="empty-state">
         No saved decks yet. Save a deck from AI recommendations below, or click <strong>+ New Deck</strong> to build your own.
@@ -78,9 +81,45 @@
     <!-- Generate ────────────────────────────────────────────────────────── -->
     <section class="generate-section">
       <button id="generate-btn" class="btn btn-generate" disabled>
-        <span class="btn-icon">⚔️</span> Analyze &amp; Generate Recommendations
+        <span class="btn-icon">⚔️</span> I'm Feeling Lucky
       </button>
-      <p class="generate-note">Claude AI searches the current meta and recommends 3 optimal decks from your collection.</p>
+      <p class="generate-note">Claude AI searches the current meta and recommends an optimal deck from your collection. Customize below for more.</p>
+
+      <!-- Recommendation Options -->
+      <button id="rec-options-toggle" class="btn btn-ghost btn-sm rec-options-toggle">Customize Recommendations</button>
+      <div id="rec-options-panel" class="rec-options-panel hidden">
+        <div class="rec-option-group">
+          <label for="rec-num-decks">Number of decks</label>
+          <div class="rec-num-control">
+            <button id="rec-num-minus" class="btn btn-ghost btn-sm">-</button>
+            <span id="rec-num-value">1</span>
+            <button id="rec-num-plus" class="btn btn-ghost btn-sm">+</button>
+          </div>
+        </div>
+
+        <div class="rec-option-group">
+          <label>Strategy types <span class="text-muted">(optional)</span></label>
+          <div id="strategy-chips" class="strategy-chips">
+            <button class="strategy-chip" data-strategy="Beatdown">Beatdown</button>
+            <button class="strategy-chip" data-strategy="Control">Control</button>
+            <button class="strategy-chip" data-strategy="Cycle">Cycle</button>
+            <button class="strategy-chip" data-strategy="Bridge Spam">Bridge Spam</button>
+            <button class="strategy-chip" data-strategy="Siege">Siege</button>
+            <button class="strategy-chip" data-strategy="Spell Bait">Spell Bait</button>
+          </div>
+        </div>
+
+        <div class="rec-option-group">
+          <label>Card pool <span class="text-muted">(optional — leave empty to use full collection)</span></label>
+          <div class="card-pool-controls">
+            <input type="text" id="card-pool-search" placeholder="Search and add cards..." autocomplete="off" />
+            <button id="card-pool-clear" class="btn btn-ghost btn-sm">Clear All</button>
+          </div>
+          <div id="card-pool-suggestions" class="card-pool-suggestions hidden"></div>
+          <div id="card-pool-selected" class="card-pool-selected"></div>
+          <p id="card-pool-count" class="hint" style="margin-top:4px"></p>
+        </div>
+      </div>
     </section>
 
     <!-- Results ──────────────────────────────────────────────────────────── -->
@@ -96,6 +135,47 @@
       <div id="decks-container"></div>
       <div id="rec-token-usage" class="token-usage-bar hidden"></div>
     </section>
+
+    <!-- Battle Log ────────────────────────────────────────────────────────── -->
+    <section class="card-section" id="battle-log-section">
+      <div class="section-header">
+        <div>
+          <h2>Battle Log <span id="battle-count" class="badge">0</span></h2>
+          <p class="hint" style="margin:0">Review past matches and run AI matchup analysis</p>
+        </div>
+        <div class="section-header-actions">
+          <button id="sync-battles-btn" class="btn btn-primary btn-sm">Sync Battles</button>
+          <button id="battle-log-toggle-btn" class="btn btn-ghost btn-sm">Show</button>
+        </div>
+      </div>
+      <div id="battle-log-list" class="battle-log-list hidden">
+        <div id="battle-log-empty" class="empty-state hidden">No battles recorded yet. Sync to import your recent matches.</div>
+        <div id="battle-log-items"></div>
+      </div>
+    </section>
+
+    <!-- Battle Analysis Modal ──────────────────────────────────────────── -->
+    <div id="battle-analysis-modal" class="modal-overlay hidden" role="dialog">
+      <div class="modal-backdrop" id="battle-analysis-backdrop"></div>
+      <div class="modal-dialog modal-wide">
+        <div class="modal-header">
+          <h3 id="battle-analysis-title">Battle Analysis</h3>
+          <button id="battle-analysis-close" class="btn btn-ghost btn-sm">&#10005; Close</button>
+        </div>
+        <div class="modal-body">
+          <div id="battle-analysis-decks" class="battle-analysis-decks"></div>
+          <div id="battle-analysis-loading" class="analysis-loading hidden">
+            <div class="spinner"></div>
+            <span id="battle-analysis-status">Analyzing matchup...</span>
+          </div>
+          <div id="battle-analysis-result" class="analysis-result hidden"></div>
+          <div id="battle-analysis-empty" class="analysis-empty">
+            <p>Get a detailed AI breakdown of this matchup — what worked, what didn't, and how to improve.</p>
+            <button id="run-battle-analysis-btn" class="btn btn-primary">Run Matchup Analysis</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- Recommendation History ───────────────────────────────────────────── -->
     <section class="card-section" id="history-section">

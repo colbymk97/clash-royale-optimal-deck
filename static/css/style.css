@@ -106,6 +106,7 @@ body {
   margin-bottom: 16px;
 }
 .section-header h2 { margin-bottom: 0; }
+.section-header-actions { display: flex; gap: 6px; align-items: center; }
 .text-muted { color: var(--text-muted); }
 
 /* ============================================================
@@ -276,6 +277,122 @@ select { cursor: pointer; width: auto; min-width: 100px; }
 }
 .generate-note { color: var(--text-muted); font-size: 0.82rem; max-width: 480px; }
 
+/* ── Recommendation Options Panel ─────────────────────────── */
+.rec-options-toggle { margin-top: 4px; }
+.rec-options-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 22px;
+  width: 100%;
+  max-width: 600px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.rec-option-group { display: flex; flex-direction: column; gap: 6px; }
+.rec-option-group > label { font-size: 0.85rem; font-weight: 700; }
+.rec-num-control {
+  display: flex; align-items: center; gap: 10px;
+}
+.rec-num-control span {
+  font-size: 1.1rem; font-weight: 800; min-width: 28px; text-align: center;
+}
+
+/* Strategy chips */
+.strategy-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.strategy-chip {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 5px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition);
+}
+.strategy-chip:hover { border-color: var(--cr-blue); color: var(--text); }
+.strategy-chip.active {
+  background: rgba(123,47,190,0.25);
+  border-color: #c084fc;
+  color: #c084fc;
+}
+
+/* Card pool picker */
+.card-pool-controls { display: flex; gap: 8px; align-items: center; }
+.card-pool-controls input {
+  flex: 1; padding: 7px 12px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); font-size: 0.85rem;
+}
+.card-pool-controls input:focus { outline: none; border-color: var(--cr-blue); }
+.card-pool-suggestions {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
+  max-height: 180px; overflow-y: auto; margin-top: 4px;
+}
+.card-pool-suggestion-item {
+  padding: 7px 12px; font-size: 0.83rem; cursor: pointer;
+  transition: background var(--transition);
+}
+.card-pool-suggestion-item:hover { background: var(--bg-card-hover); }
+.card-pool-selected { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.card-pool-chip {
+  background: rgba(26,111,181,0.2); border: 1px solid rgba(121,192,255,0.3);
+  border-radius: 14px; padding: 3px 10px; font-size: 0.78rem; color: #79c0ff;
+  display: flex; align-items: center; gap: 5px;
+}
+.card-pool-chip-remove {
+  background: none; border: none; color: #79c0ff; cursor: pointer;
+  font-size: 0.75rem; padding: 0; line-height: 1;
+}
+.card-pool-chip-remove:hover { color: #f85149; }
+
+/* ── Grade Panel ──────────────────────────────────────────── */
+.deck-grade-panel {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.grade-badge {
+  font-size: 1.8rem; font-weight: 900; min-width: 52px; height: 52px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 10px; flex-shrink: 0;
+}
+.grade-S { background: rgba(63,185,80,0.2); color: var(--cr-green); border: 2px solid var(--cr-green); }
+.grade-A { background: rgba(121,192,255,0.15); color: #79c0ff; border: 2px solid #79c0ff; }
+.grade-B { background: rgba(245,166,35,0.15); color: var(--cr-gold); border: 2px solid var(--cr-gold); }
+.grade-C { background: rgba(227,179,65,0.12); color: #e3b341; border: 2px solid #e3b341; }
+.grade-D { background: rgba(248,81,73,0.12); color: #f85149; border: 2px solid #f85149; }
+.grade-scores { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 5px; }
+.score-row { display: flex; align-items: center; gap: 8px; }
+.score-label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); width: 70px; text-align: right; }
+.score-bar-track {
+  flex: 1; height: 8px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden;
+}
+.score-bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
+.score-value { font-size: 0.72rem; color: var(--text-muted); min-width: 32px; }
+.grade-summary { font-size: 0.82rem; color: var(--text-muted); line-height: 1.5; flex-basis: 100%; margin-top: 4px; }
+
+/* ── Matchup Tags ─────────────────────────────────────────── */
+.matchup-group { display: flex; flex-direction: column; gap: 6px; }
+.matchup-row { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.matchup-label { font-size: 0.75rem; font-weight: 700; margin-right: 4px; }
+.fav-label { color: var(--cr-green); }
+.unfav-label { color: #f85149; }
+.even-label { color: var(--text-muted); }
+.matchup-tag {
+  font-size: 0.73rem; padding: 2px 8px; border-radius: 10px; font-weight: 500;
+}
+.matchup-fav { background: rgba(63,185,80,0.12); color: var(--cr-green); border: 1px solid rgba(63,185,80,0.3); }
+.matchup-unfav { background: rgba(248,81,73,0.1); color: #f85149; border: 1px solid rgba(248,81,73,0.3); }
+.matchup-even { background: rgba(139,148,158,0.1); color: var(--text-muted); border: 1px solid rgba(139,148,158,0.2); }
+
 /* ============================================================
    Status / Empty
    ============================================================ */
@@ -390,6 +507,7 @@ select { cursor: pointer; width: auto; min-width: 100px; }
 .tag-tier-C { background: rgba(227,179,65,0.12); color: #e3b341; border: 1px solid rgba(227,179,65,0.25); }
 .tag-tier-D { background: rgba(248,81,73,0.12); color: #f85149; border: 1px solid rgba(248,81,73,0.25); }
 .tag-stale  { background: rgba(245,166,35,0.12); color: #e3b341; border: 1px solid rgba(245,166,35,0.25); font-size: 0.72rem; }
+.tag-archived { background: rgba(139,148,158,0.12); color: var(--text-muted); border: 1px solid rgba(139,148,158,0.25); font-size: 0.72rem; }
 
 /* ============================================================
    Results Section
@@ -1267,6 +1385,71 @@ select { cursor: pointer; width: auto; min-width: 100px; }
   padding: 14px;
   text-align: center;
 }
+
+/* ============================================================
+   Battle Log
+   ============================================================ */
+.battle-log-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.battle-log-item {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--border);
+}
+.battle-log-item.battle-win { border-left-color: var(--cr-green); }
+.battle-log-item.battle-loss { border-left-color: #f85149; }
+.battle-log-item.battle-draw { border-left-color: var(--cr-gold); }
+
+.battle-log-header {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.battle-result-badge {
+  font-size: 0.75rem; font-weight: 800; padding: 2px 8px; border-radius: 4px;
+  text-transform: uppercase;
+}
+.battle-result-badge.battle-win { background: rgba(63,185,80,0.2); color: var(--cr-green); }
+.battle-result-badge.battle-loss { background: rgba(248,81,73,0.15); color: #f85149; }
+.battle-result-badge.battle-draw { background: rgba(245,166,35,0.15); color: var(--cr-gold); }
+.battle-score { font-weight: 800; font-size: 0.9rem; }
+.battle-mode { font-size: 0.78rem; color: var(--text-muted); }
+.battle-opponent { font-size: 0.82rem; }
+.battle-time { font-size: 0.72rem; color: var(--text-muted); margin-left: auto; }
+
+.battle-decks-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px;
+}
+.battle-deck-side { display: flex; flex-direction: column; gap: 4px; }
+.battle-deck-label { font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
+.battle-deck-chips { display: flex; flex-wrap: wrap; gap: 3px; }
+
+/* ── Battle Analysis Modal ────────────────────────────────── */
+.modal-wide { max-width: 720px; }
+
+.battle-analysis-decks {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+  flex-wrap: wrap; justify-content: center;
+}
+.battle-analysis-side { flex: 1; min-width: 200px; }
+.battle-analysis-side h4 { font-size: 0.82rem; font-weight: 700; margin-bottom: 6px; }
+.battle-analysis-vs {
+  font-size: 1.2rem; font-weight: 900; color: var(--text-muted);
+  flex-shrink: 0; padding: 0 8px;
+}
+
+.battle-analysis-overview {
+  display: flex; align-items: flex-start; gap: 14px;
+  margin-bottom: 14px; flex-wrap: wrap;
+}
+.battle-analysis-summary { flex: 1; min-width: 200px; }
+.battle-matchup-line {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px;
+}
+.battle-card-assessment {
+  display: flex; flex-direction: column; gap: 6px; margin-top: 10px;
+  font-size: 0.85rem;
+}
+.battle-card-assessment > div { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
 /* ============================================================
    Responsive
