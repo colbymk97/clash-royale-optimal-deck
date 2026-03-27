@@ -94,6 +94,7 @@
         <span id="stream-msg">Searching for current meta information...</span>
       </div>
       <div id="decks-container"></div>
+      <div id="rec-token-usage" class="token-usage-bar hidden"></div>
     </section>
 
     <!-- Recommendation History ───────────────────────────────────────────── -->
@@ -205,6 +206,7 @@
 
             <!-- Analysis result display -->
             <div id="analysis-result" class="analysis-result hidden"></div>
+            <div id="analysis-token-usage" class="token-usage-bar hidden"></div>
           </div>
         </div>
 
@@ -220,6 +222,7 @@
             </div>
           </div>
           <div class="detail-chat-input-area">
+            <div id="detail-chat-token-footer" class="token-usage-bar hidden"></div>
             <div class="chat-input-row">
               <input type="text" id="detail-chat-input" placeholder="Ask about strategy or improvements..." autocomplete="off" />
               <button id="detail-chat-send" class="btn btn-primary">Send</button>
@@ -257,6 +260,7 @@
         </div>
       </div>
       <div class="chat-input-area">
+        <div id="rec-chat-token-footer" class="token-usage-bar hidden"></div>
         <div class="chat-input-row">
           <input type="text" id="chat-input" placeholder="Ask about strategy, matchups, card placement..." autocomplete="off" />
           <button id="chat-send-btn" class="btn btn-primary">Send</button>
