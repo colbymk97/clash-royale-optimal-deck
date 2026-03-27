@@ -20,11 +20,18 @@ def _all_tools() -> list:
     return WIKI_TOOLS + (CR_TOOLS if cr_available() else [])
 
 
+_MAX_TOOL_RESULT = 2_000  # chars; keeps context lean across agentic rounds
+
+
 def dispatch_tool(name: str, tool_input: dict) -> str:
     """Route a tool call to the wiki server or the CR API server."""
     if name in _CR_TOOL_NAMES:
-        return dispatch_cr_tool(name, tool_input)
-    return _dispatch_wiki_tool(name, tool_input)
+        result = dispatch_cr_tool(name, tool_input)
+    else:
+        result = _dispatch_wiki_tool(name, tool_input)
+    if isinstance(result, str) and len(result) > _MAX_TOOL_RESULT:
+        result = result[:_MAX_TOOL_RESULT] + "\n…[truncated]"
+    return result
 
 
 # ── Tool status helper ──────────────────────────────────────────────────────
@@ -89,14 +96,14 @@ class DeckAnalyzer:
 
     # ── Agentic loops ───────────────────────────────────────────────────────
 
-    def _buffered_agent(self, system: str, messages: list, max_tokens: int, label: str):
+    def _buffered_agent(self, system: str, messages: list, max_tokens: int, label: str, max_rounds: int = 10):
         """
         Non-streaming agentic loop for JSON output (analyze functions).
         Yields ("status", str) during tool rounds, ("text", str) for the final response,
         and ("usage", dict) once at the end with cumulative token counts.
         """
         usage_totals = {"input_tokens": 0, "output_tokens": 0}
-        for _ in range(10):
+        for _ in range(max_rounds):
             resp = self.client.messages.create(
                 model="claude-sonnet-4-6",
                 max_tokens=max_tokens,
@@ -233,7 +240,7 @@ class DeckAnalyzer:
     def analyze_stream(self, cards: list[dict], player_tag: str | None = None):
         """3 deck recommendations via agentic loop. Yields (kind, value) tuples."""
         messages = [{"role": "user", "content": recommend_user_msg(cards, player_tag)}]
-        yield from self._buffered_agent(RECOMMEND_SYSTEM_PROMPT, messages, 4000, "recommend")
+        yield from self._buffered_agent(RECOMMEND_SYSTEM_PROMPT, messages, 4000, "recommend", max_rounds=6)
 
     def chat_stream(self, deck: dict, cards: list[dict], history: list[dict], user_message: str, player_tag: str | None = None):
         """Recommendation deck chat via agentic loop. Yields (kind, value) tuples."""

@@ -1279,7 +1279,7 @@ function buildRecDeckCard(deck, idx, deckId = null) {
       </div>
       <div class="deck-header-right">
         ${deck.win_condition ? `<div class="deck-win-condition">Win: <strong>${escapeHtml(deck.win_condition)}</strong></div>` : ""}
-        <button class="btn btn-save-deck save-rec-btn" data-idx="${idx}" ${!deckId ? "disabled" : ""}>⭐ Save</button>
+        <button class="btn btn-save-deck save-rec-btn" data-idx="${idx}">⭐ Save</button>
         <button class="btn btn-discuss discuss-btn" ${deckId ? `data-deck-id="${deckId}"` : "disabled"}>💬 Discuss</button>
       </div>
     </div>
@@ -1298,7 +1298,7 @@ function buildRecDeckCard(deck, idx, deckId = null) {
   `;
 
   const saveBtn = el.querySelector(".save-rec-btn");
-  if (deckId && saveBtn) {
+  if (saveBtn) {
     saveBtn.addEventListener("click", async () => {
       if (saveBtn.classList.contains("saved")) return;
       const cards = (deck.cards || []).map(name => {
