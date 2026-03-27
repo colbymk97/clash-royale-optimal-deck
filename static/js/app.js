@@ -34,6 +34,13 @@ const state = {
     deckData: null,
     streaming: false,
   },
+
+  // Recommendation options
+  recOptions: {
+    numDecks: 3,
+    strategies: [],      // selected archetype strings
+    selectedCards: [],    // card name strings for custom pool
+  },
 };
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
@@ -126,6 +133,19 @@ const chatInput         = $("chat-input");
 const chatSendBtn       = $("chat-send-btn");
 
 
+// Recommendation Options
+const recOptionsToggle  = $("rec-options-toggle");
+const recOptionsPanel   = $("rec-options-panel");
+const recNumMinus       = $("rec-num-minus");
+const recNumPlus        = $("rec-num-plus");
+const recNumValue       = $("rec-num-value");
+const strategyChipsEl   = $("strategy-chips");
+const cardPoolSearch    = $("card-pool-search");
+const cardPoolClear     = $("card-pool-clear");
+const cardPoolSuggestions = $("card-pool-suggestions");
+const cardPoolSelected  = $("card-pool-selected");
+const cardPoolCount     = $("card-pool-count");
+
 // ── Init ───────────────────────────────────────────────────────────────────
 async function init() {
   await Promise.all([loadAllCards(), loadProfiles(), checkCRStatus()]);
@@ -209,6 +229,46 @@ function bindEvents() {
 
   // Generate
   generateBtn.addEventListener("click", generateDecks);
+
+  // Recommendation options
+  recOptionsToggle.addEventListener("click", () => {
+    recOptionsPanel.classList.toggle("hidden");
+    recOptionsToggle.textContent = recOptionsPanel.classList.contains("hidden")
+      ? "Customize Recommendations" : "Hide Options";
+  });
+  recNumMinus.addEventListener("click", () => {
+    state.recOptions.numDecks = Math.max(1, state.recOptions.numDecks - 1);
+    recNumValue.textContent = state.recOptions.numDecks;
+  });
+  recNumPlus.addEventListener("click", () => {
+    state.recOptions.numDecks = Math.min(10, state.recOptions.numDecks + 1);
+    recNumValue.textContent = state.recOptions.numDecks;
+  });
+  strategyChipsEl.addEventListener("click", (e) => {
+    const chip = e.target.closest(".strategy-chip");
+    if (!chip) return;
+    const strat = chip.dataset.strategy;
+    chip.classList.toggle("active");
+    if (chip.classList.contains("active")) {
+      if (!state.recOptions.strategies.includes(strat)) state.recOptions.strategies.push(strat);
+    } else {
+      state.recOptions.strategies = state.recOptions.strategies.filter(s => s !== strat);
+    }
+  });
+  cardPoolSearch.addEventListener("input", renderCardPoolSuggestions);
+  cardPoolSearch.addEventListener("focus", renderCardPoolSuggestions);
+  cardPoolSearch.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { cardPoolSuggestions.classList.add("hidden"); cardPoolSearch.blur(); }
+  });
+  document.addEventListener("click", (e) => {
+    if (!cardPoolSuggestions.contains(e.target) && e.target !== cardPoolSearch) {
+      cardPoolSuggestions.classList.add("hidden");
+    }
+  });
+  cardPoolClear.addEventListener("click", () => {
+    state.recOptions.selectedCards = [];
+    renderCardPoolSelected();
+  });
 
   // My Decks
   newDeckBtn.addEventListener("click", () => openDeckBuilder(null));
@@ -1169,6 +1229,51 @@ function appendDetailChatMsg(role, content, timestamp = null) {
 // GENERATE / RECOMMENDATIONS
 // ══════════════════════════════════════════════════════════════════════════
 
+// ── Card Pool Picker ────────────────────────────────────────────────────
+function renderCardPoolSuggestions() {
+  const q = cardPoolSearch.value.trim().toLowerCase();
+  if (!q || state.collection.length === 0) {
+    cardPoolSuggestions.classList.add("hidden");
+    return;
+  }
+  const already = new Set(state.recOptions.selectedCards.map(n => n.toLowerCase()));
+  const matches = state.collection
+    .filter(c => c.name.toLowerCase().includes(q) && !already.has(c.name.toLowerCase()))
+    .slice(0, 12);
+  if (!matches.length) { cardPoolSuggestions.classList.add("hidden"); return; }
+  cardPoolSuggestions.innerHTML = matches.map(c =>
+    `<div class="card-pool-suggestion-item" data-name="${escapeHtml(c.name)}">${escapeHtml(c.name)} <span class="text-muted">Lvl ${c.level}</span></div>`
+  ).join("");
+  cardPoolSuggestions.classList.remove("hidden");
+  cardPoolSuggestions.querySelectorAll(".card-pool-suggestion-item").forEach(item => {
+    item.addEventListener("click", () => {
+      state.recOptions.selectedCards.push(item.dataset.name);
+      cardPoolSearch.value = "";
+      cardPoolSuggestions.classList.add("hidden");
+      renderCardPoolSelected();
+    });
+  });
+}
+
+function renderCardPoolSelected() {
+  if (!state.recOptions.selectedCards.length) {
+    cardPoolSelected.innerHTML = "";
+    cardPoolCount.textContent = "";
+    return;
+  }
+  cardPoolSelected.innerHTML = state.recOptions.selectedCards.map(name =>
+    `<span class="card-pool-chip">${escapeHtml(name)}<button class="card-pool-chip-remove" data-name="${escapeHtml(name)}">x</button></span>`
+  ).join("");
+  cardPoolCount.textContent = `${state.recOptions.selectedCards.length} cards selected`;
+  cardPoolSelected.querySelectorAll(".card-pool-chip-remove").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.recOptions.selectedCards = state.recOptions.selectedCards.filter(n => n !== btn.dataset.name);
+      renderCardPoolSelected();
+    });
+  });
+}
+
+// ── Generate Decks ──────────────────────────────────────────────────────
 async function generateDecks() {
   generateBtn.disabled = true;
   resultsSection.classList.remove("hidden");
@@ -1182,14 +1287,19 @@ async function generateDecks() {
 
   let accumulated = "";
   try {
+    const payload = {
+      cards: state.collection.filter(c => c.level >= (c.maxLevel || 16) - 2),
+      profile_id: state.activeProfileId,
+      player_tag: state.profiles.find(p => p.id === state.activeProfileId)?.player_tag ?? null,
+      num_decks: state.recOptions.numDecks,
+    };
+    if (state.recOptions.strategies.length) payload.strategies = state.recOptions.strategies;
+    if (state.recOptions.selectedCards.length) payload.selected_cards = state.recOptions.selectedCards;
+
     const res = await fetch("/api/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        cards: state.collection.filter(c => c.level >= (c.maxLevel || 16) - 2),
-        profile_id: state.activeProfileId,
-        player_tag: state.profiles.find(p => p.id === state.activeProfileId)?.player_tag ?? null,
-      }),
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok) {
@@ -1253,6 +1363,52 @@ function buildRecDeckCard(deck, idx, deckId = null) {
   const synergies = (strategy.key_synergies || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
   const matchups  = (strategy.matchup_tips  || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
 
+  // Grade & scores
+  const grade = deck.grade || {};
+  const scores = grade.scores || {};
+  const gradeClass = `grade-${(grade.overall || "C").replace(/[^A-DS]/g, "")}`;
+  const scoreLabels = {
+    offense: "Offense", defense: "Defense", synergy: "Synergy",
+    versatility: "Versatility", meta_viability: "Meta", f2p_friendly: "F2P"
+  };
+
+  let gradeHtml = "";
+  if (grade.overall) {
+    const barsHtml = Object.entries(scoreLabels).map(([key, label]) => {
+      const val = scores[key] ?? 0;
+      const pct = val * 10;
+      const barColor = val >= 8 ? "var(--cr-green)" : val >= 5 ? "var(--cr-gold)" : "var(--cr-red)";
+      return `<div class="score-row">
+        <span class="score-label">${label}</span>
+        <div class="score-bar-track"><div class="score-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>
+        <span class="score-value">${val}/10</span>
+      </div>`;
+    }).join("");
+
+    gradeHtml = `
+      <div class="deck-grade-panel">
+        <div class="grade-badge ${gradeClass}">${escapeHtml(grade.overall)}</div>
+        <div class="grade-scores">${barsHtml}</div>
+        ${grade.summary ? `<p class="grade-summary">${escapeHtml(grade.summary)}</p>` : ""}
+      </div>`;
+  }
+
+  // Matchups section
+  const deckMatchups = deck.matchups || {};
+  let matchupsSectionHtml = "";
+  if (deckMatchups.favorable || deckMatchups.unfavorable || deckMatchups.even) {
+    const favHtml = (deckMatchups.favorable || []).map(s => `<span class="matchup-tag matchup-fav">${escapeHtml(s)}</span>`).join("");
+    const unfavHtml = (deckMatchups.unfavorable || []).map(s => `<span class="matchup-tag matchup-unfav">${escapeHtml(s)}</span>`).join("");
+    const evenHtml = (deckMatchups.even || []).map(s => `<span class="matchup-tag matchup-even">${escapeHtml(s)}</span>`).join("");
+    matchupsSectionHtml = `<div class="strategy-box full-width"><h4>Matchups</h4>
+      <div class="matchup-group">
+        ${favHtml ? `<div class="matchup-row"><span class="matchup-label fav-label">Favorable:</span>${favHtml}</div>` : ""}
+        ${unfavHtml ? `<div class="matchup-row"><span class="matchup-label unfav-label">Unfavorable:</span>${unfavHtml}</div>` : ""}
+        ${evenHtml ? `<div class="matchup-row"><span class="matchup-label even-label">Even:</span>${evenHtml}</div>` : ""}
+      </div>
+    </div>`;
+  }
+
   const el = document.createElement("article");
   el.className = "deck-card";
   el.style.animationDelay = `${idx * 0.1}s`;
@@ -1262,25 +1418,27 @@ function buildRecDeckCard(deck, idx, deckId = null) {
         <div class="deck-name">${escapeHtml(deck.name || `Deck ${idx + 1}`)}</div>
         <div class="deck-meta">
           ${deck.archetype ? `<span class="tag tag-archetype">${escapeHtml(deck.archetype)}</span>` : ""}
-          ${deck.average_elixir ? `<span class="tag tag-elixir">⚡ ${deck.average_elixir}</span>` : ""}
+          ${deck.average_elixir ? `<span class="tag tag-elixir">${deck.average_elixir}</span>` : ""}
           <span class="tag tag-difficulty-${difficulty}">${difficulty}</span>
         </div>
       </div>
       <div class="deck-header-right">
         ${deck.win_condition ? `<div class="deck-win-condition">Win: <strong>${escapeHtml(deck.win_condition)}</strong></div>` : ""}
-        <button class="btn btn-save-deck save-rec-btn" data-idx="${idx}" ${!deckId ? "disabled" : ""}>⭐ Save</button>
-        <button class="btn btn-discuss discuss-btn" ${deckId ? `data-deck-id="${deckId}"` : "disabled"}>💬 Discuss</button>
+        <button class="btn btn-save-deck save-rec-btn" data-idx="${idx}" ${!deckId ? "disabled" : ""}>Save</button>
+        <button class="btn btn-discuss discuss-btn" ${deckId ? `data-deck-id="${deckId}"` : "disabled"}>Discuss</button>
       </div>
     </div>
     <div class="deck-cards-row">${cardItemsHtml}</div>
     <div class="deck-body">
       ${deck.description ? `<p class="deck-description">${escapeHtml(deck.description)}</p>` : ""}
+      ${gradeHtml}
       <div class="strategy-grid">
         ${strategy.general ? `<div class="strategy-box full-width"><h4>General Gameplan</h4><p>${escapeHtml(strategy.general)}</p></div>` : ""}
         ${strategy.offense ? `<div class="strategy-box"><h4>Offense</h4><p>${escapeHtml(strategy.offense)}</p></div>` : ""}
         ${strategy.defense ? `<div class="strategy-box"><h4>Defense</h4><p>${escapeHtml(strategy.defense)}</p></div>` : ""}
         ${synergies ? `<div class="strategy-box"><h4>Key Synergies</h4><ul>${synergies}</ul></div>` : ""}
         ${matchups  ? `<div class="strategy-box"><h4>Matchup Tips</h4><ul>${matchups}</ul></div>`  : ""}
+        ${matchupsSectionHtml}
       </div>
       ${deck.level_notes ? `<div class="level-notes"><strong>Level Notes:</strong> ${escapeHtml(deck.level_notes)}</div>` : ""}
     </div>

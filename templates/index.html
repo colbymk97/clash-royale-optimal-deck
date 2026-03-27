@@ -80,7 +80,43 @@
       <button id="generate-btn" class="btn btn-generate" disabled>
         <span class="btn-icon">⚔️</span> Analyze &amp; Generate Recommendations
       </button>
-      <p class="generate-note">Claude AI searches the current meta and recommends 3 optimal decks from your collection.</p>
+      <p class="generate-note">Claude AI searches the current meta and recommends optimal decks from your collection.</p>
+
+      <!-- Recommendation Options -->
+      <button id="rec-options-toggle" class="btn btn-ghost btn-sm rec-options-toggle">Customize Recommendations</button>
+      <div id="rec-options-panel" class="rec-options-panel hidden">
+        <div class="rec-option-group">
+          <label for="rec-num-decks">Number of decks</label>
+          <div class="rec-num-control">
+            <button id="rec-num-minus" class="btn btn-ghost btn-sm">-</button>
+            <span id="rec-num-value">3</span>
+            <button id="rec-num-plus" class="btn btn-ghost btn-sm">+</button>
+          </div>
+        </div>
+
+        <div class="rec-option-group">
+          <label>Strategy types <span class="text-muted">(optional)</span></label>
+          <div id="strategy-chips" class="strategy-chips">
+            <button class="strategy-chip" data-strategy="Beatdown">Beatdown</button>
+            <button class="strategy-chip" data-strategy="Control">Control</button>
+            <button class="strategy-chip" data-strategy="Cycle">Cycle</button>
+            <button class="strategy-chip" data-strategy="Bridge Spam">Bridge Spam</button>
+            <button class="strategy-chip" data-strategy="Siege">Siege</button>
+            <button class="strategy-chip" data-strategy="Spell Bait">Spell Bait</button>
+          </div>
+        </div>
+
+        <div class="rec-option-group">
+          <label>Card pool <span class="text-muted">(optional — leave empty to use full collection)</span></label>
+          <div class="card-pool-controls">
+            <input type="text" id="card-pool-search" placeholder="Search and add cards..." autocomplete="off" />
+            <button id="card-pool-clear" class="btn btn-ghost btn-sm">Clear All</button>
+          </div>
+          <div id="card-pool-suggestions" class="card-pool-suggestions hidden"></div>
+          <div id="card-pool-selected" class="card-pool-selected"></div>
+          <p id="card-pool-count" class="hint" style="margin-top:4px"></p>
+        </div>
+      </div>
     </section>
 
     <!-- Results ──────────────────────────────────────────────────────────── -->

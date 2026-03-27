@@ -171,6 +171,11 @@ def analyze_deck():
     if len(cards) < 8:
         return jsonify({"error": "You need at least 8 cards to build a deck"}), 400
 
+    # New optional parameters
+    num_decks = min(max(int(data.get("num_decks", 3)), 1), 10)
+    strategies = data.get("strategies") or None  # list of archetype strings or None
+    selected_cards = data.get("selected_cards") or None  # list of card name strings or None
+
     player_tag = None
     if profile_id:
         profile = db.get_profile(profile_id)
@@ -180,7 +185,11 @@ def analyze_deck():
     def generate():
         accumulated = ""
         try:
-            for kind, value in deck_analyzer.analyze_stream(cards, player_tag=player_tag):
+            for kind, value in deck_analyzer.analyze_stream(
+                cards, player_tag=player_tag,
+                num_decks=num_decks, strategies=strategies,
+                selected_cards=selected_cards,
+            ):
                 if kind == "status":
                     yield f"data: {json.dumps({'status': value})}\n\n"
                 else:

@@ -4,7 +4,7 @@ import anthropic
 from wiki_context import WIKI_TOOLS, dispatch_tool as _dispatch_wiki_tool
 from cr_context import CR_TOOLS, cr_available, dispatch_cr_tool
 from prompts import (
-    RECOMMEND_SYSTEM_PROMPT,
+    _build_recommend_system,
     ANALYSIS_SYSTEM_PROMPT,
     recommend_user_msg,
     analysis_user_msg,
@@ -199,10 +199,25 @@ class DeckAnalyzer:
 
     # ── Public API ──────────────────────────────────────────────────────────
 
-    def analyze_stream(self, cards: list[dict], player_tag: str | None = None):
-        """3 deck recommendations via agentic loop. Yields (kind, value) tuples."""
-        messages = [{"role": "user", "content": recommend_user_msg(cards, player_tag)}]
-        yield from self._buffered_agent(RECOMMEND_SYSTEM_PROMPT, messages, 4000, "recommend")
+    def analyze_stream(
+        self,
+        cards: list[dict],
+        player_tag: str | None = None,
+        num_decks: int = 3,
+        strategies: list[str] | None = None,
+        selected_cards: list[str] | None = None,
+    ):
+        """Deck recommendations via agentic loop. Yields (kind, value) tuples."""
+        system = _build_recommend_system(num_decks=num_decks, strategies=strategies)
+        user_msg = recommend_user_msg(
+            cards, player_tag,
+            num_decks=num_decks,
+            strategies=strategies,
+            selected_cards=selected_cards,
+        )
+        messages = [{"role": "user", "content": user_msg}]
+        max_tokens = 4000 + (num_decks - 3) * 1200  # scale token budget with deck count
+        yield from self._buffered_agent(system, messages, max_tokens, "recommend")
 
     def chat_stream(self, deck: dict, cards: list[dict], history: list[dict], user_message: str, player_tag: str | None = None):
         """Recommendation deck chat via agentic loop. Yields (kind, value) tuples."""
