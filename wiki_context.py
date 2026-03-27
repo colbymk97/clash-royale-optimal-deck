@@ -109,7 +109,7 @@ WIKI_TOOLS = [
                 "n_results": {
                     "type": "integer",
                     "description": "Number of results to return (1-10)",
-                    "default": 5,
+                    "default": 3,
                 },
             },
             "required": ["query"],
@@ -162,7 +162,7 @@ WIKI_TOOLS = [
                 "n_results": {
                     "type": "integer",
                     "description": "Number of results (1-10)",
-                    "default": 5,
+                    "default": 3,
                 },
             },
             "required": ["query"],

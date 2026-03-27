@@ -206,6 +206,7 @@ def analyze_deck():
 
     def generate():
         accumulated = ""
+        usage_data = None
         try:
             for kind, value in deck_analyzer.analyze_stream(
                 cards, player_tag=player_tag,
@@ -215,6 +216,8 @@ def analyze_deck():
             ):
                 if kind == "status":
                     yield f"data: {json.dumps({'status': value})}\n\n"
+                elif kind == "usage":
+                    usage_data = value
                 else:
                     accumulated += value
                     yield f"data: {json.dumps({'chunk': value})}\n\n"
@@ -233,7 +236,7 @@ def analyze_deck():
             except Exception:
                 pass
 
-            yield f"data: {json.dumps({'done': True, **save_info})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'usage': usage_data, **save_info})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
@@ -285,6 +288,7 @@ def post_chat(deck_id):
 
     def generate():
         full_response = ""
+        usage_data = None
         try:
             for kind, value in deck_analyzer.chat_stream(
                 deck_data["deck"], deck_data["cards"], history, user_message,
@@ -292,11 +296,13 @@ def post_chat(deck_id):
             ):
                 if kind == "status":
                     yield f"data: {json.dumps({'status': value})}\n\n"
+                elif kind == "usage":
+                    usage_data = value
                 else:
                     full_response += value
                     yield f"data: {json.dumps({'chunk': value})}\n\n"
             db.save_chat_message(deck_id, "assistant", full_response)
-            yield f"data: {json.dumps({'done': True})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'usage': usage_data})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
@@ -389,10 +395,13 @@ def run_saved_deck_analysis(deck_id):
 
     def generate():
         accumulated = ""
+        usage_data = None
         try:
             for kind, value in deck_analyzer.analyze_saved_deck_stream(deck["cards"], collection, player_tag=player_tag):
                 if kind == "status":
                     yield f"data: {json.dumps({'status': value})}\n\n"
+                elif kind == "usage":
+                    usage_data = value
                 else:
                     accumulated += value
                     yield f"data: {json.dumps({'chunk': value})}\n\n"
@@ -402,11 +411,11 @@ def run_saved_deck_analysis(deck_id):
                 if j0 != -1 and j1 != -1:
                     parsed = json.loads(accumulated[j0:j1 + 1])
                     db.save_saved_deck_analysis(deck_id, parsed, collection)
-                    yield f"data: {json.dumps({'done': True, 'analysis': parsed})}\n\n"
+                    yield f"data: {json.dumps({'done': True, 'analysis': parsed, 'usage': usage_data})}\n\n"
                 else:
-                    yield f"data: {json.dumps({'done': True})}\n\n"
+                    yield f"data: {json.dumps({'done': True, 'usage': usage_data})}\n\n"
             except Exception:
-                yield f"data: {json.dumps({'done': True})}\n\n"
+                yield f"data: {json.dumps({'done': True, 'usage': usage_data})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
@@ -446,6 +455,7 @@ def post_saved_deck_chat(deck_id):
 
     def generate():
         full_response = ""
+        usage_data = None
         try:
             for kind, value in deck_analyzer.saved_deck_chat_stream(
                 deck["cards"], analysis, collection, history, user_message,
@@ -453,11 +463,13 @@ def post_saved_deck_chat(deck_id):
             ):
                 if kind == "status":
                     yield f"data: {json.dumps({'status': value})}\n\n"
+                elif kind == "usage":
+                    usage_data = value
                 else:
                     full_response += value
                     yield f"data: {json.dumps({'chunk': value})}\n\n"
             db.append_saved_deck_chat(deck_id, "assistant", full_response)
-            yield f"data: {json.dumps({'done': True})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'usage': usage_data})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
@@ -540,4 +552,5 @@ def run_battle_analysis(battle_id):
 
 if __name__ == "__main__":
     debug = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
-    app.run(debug=debug, port=5000)
+    port = int(os.environ.get("PORT", 5001))
+    app.run(debug=debug, port=port)

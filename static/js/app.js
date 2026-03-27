@@ -141,6 +141,12 @@ const chatMessages      = $("chat-messages");
 const chatInput         = $("chat-input");
 const chatSendBtn       = $("chat-send-btn");
 
+// Token usage bars
+const recTokenUsage       = $("rec-token-usage");
+const analysisTokenUsage  = $("analysis-token-usage");
+const detailChatTokenFooter = $("detail-chat-token-footer");
+const recChatTokenFooter  = $("rec-chat-token-footer");
+
 
 // Archive
 const showArchivedBtn   = $("show-archived-btn");
@@ -1094,6 +1100,7 @@ async function runDeckAnalysis() {
             analysisLoading.classList.remove("visible");
             showAnalysisResult(msg.analysis, state.collection);
             updateDetailMetaTags(msg.analysis);
+            showTokenUsage(analysisTokenUsage, msg.usage);
             return;
           }
           if (msg.done) {
@@ -1105,6 +1112,7 @@ async function runDeckAnalysis() {
                 analysisLoading.classList.remove("visible");
                 showAnalysisResult(parsed, state.collection);
                 updateDetailMetaTags(parsed);
+                showTokenUsage(analysisTokenUsage, msg.usage);
               } catch { showAnalysisError("Could not parse analysis response."); }
             }
             return;
@@ -1259,6 +1267,7 @@ async function sendDetailChatMessage() {
       },
       (msg) => {
         if (msg.status) typing.innerHTML = `<span class="chat-tool-status">${escapeHtml(msg.status)}</span>`;
+        if (msg.done) showTokenUsage(detailChatTokenFooter, msg.usage);
       }
     );
     if (bubbleStarted) { bubble.classList.remove("streaming"); addTimestamp(msgEl); }
@@ -1339,6 +1348,7 @@ async function generateDecks() {
   metaContext.textContent = "";
   state.deckIds = [];
 
+  recTokenUsage.classList.add("hidden");
   streamStatus.classList.add("visible");
   streamMsg.textContent = "Analyzing collection — querying wiki for meta data...";
   setTimeout(() => resultsSection.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
@@ -1374,6 +1384,7 @@ async function generateDecks() {
           if (msg.deck_ids) state.deckIds = msg.deck_ids;
           const ok = tryRenderDecks(accumulated, state.deckIds);
           if (!ok) showStreamError("Failed to parse AI response. Please try again.");
+          showTokenUsage(recTokenUsage, msg.usage);
         }
       }
     );
@@ -1482,8 +1493,8 @@ function buildRecDeckCard(deck, idx, deckId = null) {
       </div>
       <div class="deck-header-right">
         ${deck.win_condition ? `<div class="deck-win-condition">Win: <strong>${escapeHtml(deck.win_condition)}</strong></div>` : ""}
-        <button class="btn btn-save-deck save-rec-btn" data-idx="${idx}" ${!deckId ? "disabled" : ""}>Save</button>
-        <button class="btn btn-discuss discuss-btn" ${deckId ? `data-deck-id="${deckId}"` : "disabled"}>Discuss</button>
+        <button class="btn btn-save-deck save-rec-btn" data-idx="${idx}">⭐ Save</button>
+        <button class="btn btn-discuss discuss-btn" ${deckId ? `data-deck-id="${deckId}"` : "disabled"}>💬 Discuss</button>
       </div>
     </div>
     <div class="deck-cards-row">${cardItemsHtml}</div>
@@ -1503,7 +1514,7 @@ function buildRecDeckCard(deck, idx, deckId = null) {
   `;
 
   const saveBtn = el.querySelector(".save-rec-btn");
-  if (deckId && saveBtn) {
+  if (saveBtn) {
     saveBtn.addEventListener("click", async () => {
       if (saveBtn.classList.contains("saved")) return;
       const cards = (deck.cards || []).map(name => {
@@ -1556,6 +1567,7 @@ async function openRecChat(deckId, deckData) {
   ].filter(Boolean).join("  ·  ");
 
   chatMessages.innerHTML = `<div class="chat-welcome"><p>👋 Ask me anything about this deck!</p></div>`;
+  recChatTokenFooter.classList.add("hidden");
 
   try {
     const res = await fetch(`/api/decks/${deckId}/chat`);
@@ -1626,6 +1638,7 @@ async function sendRecChatMessage() {
       },
       (msg) => {
         if (msg.status) typing.innerHTML = `<span class="chat-tool-status">${escapeHtml(msg.status)}</span>`;
+        if (msg.done) showTokenUsage(recChatTokenFooter, msg.usage);
       }
     );
     if (bubbleStarted) { bubble.classList.remove("streaming"); addTimestamp(msgEl); }
@@ -1800,6 +1813,26 @@ function createTypingIndicator() {
 }
 
 function scrollEl(el) { el.scrollTop = el.scrollHeight; }
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// TOKEN USAGE DISPLAY
+// ══════════════════════════════════════════════════════════════════════════
+
+function showTokenUsage(el, usage) {
+  if (!el || !usage) return;
+  const fmt = (n) => n != null ? n.toLocaleString() : "—";
+  const cost = usage.cost != null ? `$${usage.cost.toFixed(4)}` : "—";
+  el.innerHTML = `
+    <span class="tu-label">Tokens</span>
+    <span class="tu-sep">|</span>
+    <span class="tu-stat tu-in"><span class="tu-icon">↑</span> ${fmt(usage.input_tokens)} in</span>
+    <span class="tu-stat tu-out"><span class="tu-icon">↓</span> ${fmt(usage.output_tokens)} out</span>
+    <span class="tu-sep">|</span>
+    <span class="tu-stat tu-cost">est. ${cost}</span>
+  `;
+  el.classList.remove("hidden");
+}
 
 
 // ══════════════════════════════════════════════════════════════════════════
