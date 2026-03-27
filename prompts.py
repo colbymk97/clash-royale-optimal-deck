@@ -87,6 +87,36 @@ def _build_recommend_system(num_decks: int = 3, strategies: list[str] | None = N
     )
 
 
+BATTLE_ANALYSIS_SYSTEM_PROMPT = """You are an expert Clash Royale coach with access to wiki tools.
+
+You will receive the details of a specific battle — both decks, the result, and crowns.
+Use the wiki tools to look up card interactions, synergies, and counters BEFORE giving your analysis.
+
+Analyze the matchup between the two decks. Be specific about what happened and why.
+
+Return ONLY valid JSON:
+{
+  "matchup_summary": "1-2 sentence overview of the matchup dynamics",
+  "your_deck_archetype": "The archetype of the player's deck",
+  "opponent_deck_archetype": "The archetype of the opponent's deck",
+  "matchup_favorability": "Favorable | Even | Unfavorable",
+  "key_interactions": [
+    "Specific card vs card interaction that matters in this matchup"
+  ],
+  "what_went_right": ["Things the deck does well against this opponent"],
+  "what_went_wrong": ["Weaknesses or problems in this matchup"],
+  "improvement_tips": [
+    "Specific actionable advice for winning this matchup next time"
+  ],
+  "card_mvps": ["Cards that are most valuable in this matchup"],
+  "card_liabilities": ["Cards that are weakest in this matchup"],
+  "grade": {
+    "overall": "S | A | B | C | D",
+    "summary": "1-2 sentence assessment of deck performance in this matchup"
+  }
+}"""
+
+
 ANALYSIS_SYSTEM_PROMPT = """You are an expert Clash Royale coach with access to wiki tools.
 
 You will receive the 8 cards in a deck with levels and the player's full collection.
@@ -138,6 +168,7 @@ def recommend_user_msg(
     num_decks: int = 3,
     strategies: list[str] | None = None,
     selected_cards: list[str] | None = None,
+    previous_decks: list[list[str]] | None = None,
 ) -> str:
     tag_line = f"\nPlayer tag: {player_tag} (you may call get_player_recent_decks to see what they've been playing)" if player_tag else ""
 
@@ -155,11 +186,39 @@ def recommend_user_msg(
     if strategies:
         strategy_note = f"\nRequested archetypes: {', '.join(strategies)}."
 
+    prev_note = ""
+    if previous_decks:
+        deck_strs = []
+        for i, deck_cards in enumerate(previous_decks, 1):
+            deck_strs.append(f"  {i}. {', '.join(deck_cards)}")
+        prev_note = (
+            "\n\n## Previously Recommended Decks (DO NOT duplicate these)\n"
+            + "\n".join(deck_strs)
+            + "\nBuild completely different decks — avoid reusing the same 8-card combination."
+        )
+
     return (
         f"Build {num_decks} optimal deck suggestions from my card pool. "
         f"Use ONLY cards listed below. Query the wiki for current meta and synergy info first. "
-        f"Include a deep analysis grade for each deck.{tag_line}{strategy_note}{pool_note}\n\n"
+        f"Include a deep analysis grade for each deck.{tag_line}{strategy_note}{pool_note}{prev_note}\n\n"
         f"## My Card Pool ({len(card_pool)} cards)\n{_card_lines(card_pool)}"
+    )
+
+
+def battle_analysis_user_msg(battle: dict) -> str:
+    team_cards = battle.get("team_cards", [])
+    opp_cards = battle.get("opponent_cards", [])
+    result = battle.get("result", "unknown")
+    team_lines = "\n".join(f"  - {c['name']} (Level {c.get('level', '?')})" for c in team_cards)
+    opp_lines = "\n".join(f"  - {c['name']} (Level {c.get('level', '?')})" for c in opp_cards)
+
+    return (
+        f"Analyze this battle matchup. Query the wiki for card interactions and counters first.\n\n"
+        f"## Battle Result: {result.upper()}\n"
+        f"Score: {battle.get('team_crowns', 0)} - {battle.get('opponent_crowns', 0)}\n"
+        f"Mode: {battle.get('game_mode', 'Ladder')}\n\n"
+        f"## My Deck\n{team_lines}\n\n"
+        f"## Opponent's Deck ({battle.get('opponent_name', 'Opponent')})\n{opp_lines}"
     )
 
 

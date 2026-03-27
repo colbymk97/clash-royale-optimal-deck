@@ -86,13 +86,34 @@ def init_db():
                 content       TEXT NOT NULL,
                 created_at    TEXT NOT NULL DEFAULT (datetime('now'))
             );
+
+            -- Battle log
+            CREATE TABLE IF NOT EXISTS battles (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_id       INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+                battle_time      TEXT NOT NULL,
+                game_mode        TEXT DEFAULT '',
+                arena            TEXT DEFAULT '',
+                result           TEXT NOT NULL,
+                team_crowns      INTEGER DEFAULT 0,
+                opponent_crowns  INTEGER DEFAULT 0,
+                team_cards_json  TEXT NOT NULL,
+                opponent_name    TEXT DEFAULT '',
+                opponent_tag     TEXT DEFAULT '',
+                opponent_trophies INTEGER DEFAULT 0,
+                opponent_cards_json TEXT NOT NULL,
+                analysis_json    TEXT,
+                created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(profile_id, battle_time)
+            );
         """)
 
-    # Migrate pre-profile tables: add profile_id if missing
+    # Migrate pre-profile tables: add columns if missing
     with _get_conn() as conn:
         for table, col_def in [
             ("sessions",    "profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL"),
             ("saved_decks", "profile_id INTEGER REFERENCES profiles(id) ON DELETE CASCADE"),
+            ("saved_decks", "archived INTEGER NOT NULL DEFAULT 0"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
@@ -269,23 +290,25 @@ def create_saved_deck(name: str, cards: list, source: str = "manual", profile_id
         return cur.lastrowid
 
 
-def list_saved_decks(profile_id: int | None = None) -> list:
+def list_saved_decks(profile_id: int | None = None, include_archived: bool = False) -> list:
     with _get_conn() as conn:
+        archive_filter = "" if include_archived else " AND archived = 0"
         if profile_id is not None:
             rows = conn.execute(
-                "SELECT id, name, source, cards_json, created_at, updated_at "
-                "FROM saved_decks WHERE profile_id = ? ORDER BY updated_at DESC",
+                "SELECT id, name, source, cards_json, created_at, updated_at, archived "
+                f"FROM saved_decks WHERE profile_id = ?{archive_filter} ORDER BY updated_at DESC",
                 (profile_id,),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT id, name, source, cards_json, created_at, updated_at "
-                "FROM saved_decks ORDER BY updated_at DESC"
+                "SELECT id, name, source, cards_json, created_at, updated_at, archived "
+                f"FROM saved_decks WHERE 1=1{archive_filter} ORDER BY updated_at DESC"
             ).fetchall()
         result = []
         for r in rows:
             d = dict(r)
             d["cards"] = json.loads(d.pop("cards_json"))
+            d["archived"] = bool(d.get("archived", 0))
             result.append(d)
         return result
 
@@ -375,4 +398,114 @@ def append_saved_deck_chat(saved_deck_id: int, role: str, content: str):
         conn.execute(
             "INSERT INTO saved_deck_chat (saved_deck_id, role, content) VALUES (?, ?, ?)",
             (saved_deck_id, role, content),
+        )
+
+
+# ── Deck Archiving ────────────────────────────────────────────────────────
+
+def archive_saved_deck(deck_id: int, archived: bool = True) -> bool:
+    with _get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE saved_decks SET archived = ?, updated_at = datetime('now') WHERE id = ?",
+            (1 if archived else 0, deck_id),
+        )
+        return cur.rowcount > 0
+
+
+def get_active_saved_deck_cards(profile_id: int) -> list[list[str]]:
+    """Return card name lists for all non-archived saved decks for a profile."""
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT cards_json FROM saved_decks WHERE profile_id = ? AND archived = 0",
+            (profile_id,),
+        ).fetchall()
+        result = []
+        for r in rows:
+            cards = json.loads(r["cards_json"])
+            result.append(sorted(c["name"] for c in cards))
+        return result
+
+
+# ── Battle Log ────────────────────────────────────────────────────────────
+
+def save_battles(profile_id: int, battles: list[dict]) -> int:
+    """Insert battles, skipping duplicates. Returns count of new battles."""
+    inserted = 0
+    with _get_conn() as conn:
+        for b in battles:
+            try:
+                conn.execute(
+                    """INSERT INTO battles
+                       (profile_id, battle_time, game_mode, arena, result,
+                        team_crowns, opponent_crowns, team_cards_json,
+                        opponent_name, opponent_tag, opponent_trophies, opponent_cards_json)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        profile_id,
+                        b["battleTime"],
+                        b.get("gameMode", ""),
+                        b.get("arena", ""),
+                        b["result"],
+                        b.get("team_crowns", 0),
+                        b.get("opponent_crowns", 0),
+                        json.dumps(b.get("team_cards", [])),
+                        b.get("opponent_name", ""),
+                        b.get("opponent_tag", ""),
+                        b.get("opponent_trophies", 0),
+                        json.dumps(b.get("opponent_cards", [])),
+                    ),
+                )
+                inserted += 1
+            except Exception:
+                pass  # duplicate battle_time
+    return inserted
+
+
+def list_battles(profile_id: int, limit: int = 50) -> list:
+    with _get_conn() as conn:
+        rows = conn.execute(
+            """SELECT id, battle_time, game_mode, arena, result,
+                      team_crowns, opponent_crowns, team_cards_json,
+                      opponent_name, opponent_tag, opponent_trophies,
+                      opponent_cards_json, analysis_json
+               FROM battles WHERE profile_id = ?
+               ORDER BY battle_time DESC LIMIT ?""",
+            (profile_id, limit),
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["team_cards"] = json.loads(d.pop("team_cards_json"))
+            d["opponent_cards"] = json.loads(d.pop("opponent_cards_json"))
+            d["analysis"] = json.loads(d["analysis_json"]) if d["analysis_json"] else None
+            del d["analysis_json"]
+            result.append(d)
+        return result
+
+
+def get_battle(battle_id: int) -> dict | None:
+    with _get_conn() as conn:
+        row = conn.execute(
+            """SELECT id, profile_id, battle_time, game_mode, arena, result,
+                      team_crowns, opponent_crowns, team_cards_json,
+                      opponent_name, opponent_tag, opponent_trophies,
+                      opponent_cards_json, analysis_json
+               FROM battles WHERE id = ?""",
+            (battle_id,),
+        ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["team_cards"] = json.loads(d.pop("team_cards_json"))
+        d["opponent_cards"] = json.loads(d.pop("opponent_cards_json"))
+        d["analysis"] = json.loads(d["analysis_json"]) if d["analysis_json"] else None
+        del d["analysis_json"]
+        return d
+
+
+def save_battle_analysis(battle_id: int, analysis: dict):
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE battles SET analysis_json = ? WHERE id = ?",
+            (json.dumps(analysis), battle_id),
         )

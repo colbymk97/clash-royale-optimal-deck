@@ -37,9 +37,18 @@ const state = {
 
   // Recommendation options
   recOptions: {
-    numDecks: 3,
+    numDecks: 1,
     strategies: [],      // selected archetype strings
     selectedCards: [],    // card name strings for custom pool
+  },
+
+  // Battle log
+  battles: [],
+  showArchived: false,
+  battleAnalysis: {
+    battleId: null,
+    battleData: null,
+    streaming: false,
   },
 };
 
@@ -132,6 +141,30 @@ const chatMessages      = $("chat-messages");
 const chatInput         = $("chat-input");
 const chatSendBtn       = $("chat-send-btn");
 
+
+// Archive
+const showArchivedBtn   = $("show-archived-btn");
+
+// Battle Log
+const battleLogSection  = $("battle-log-section");
+const battleCount       = $("battle-count");
+const syncBattlesBtn    = $("sync-battles-btn");
+const battleLogToggle   = $("battle-log-toggle-btn");
+const battleLogList     = $("battle-log-list");
+const battleLogEmpty    = $("battle-log-empty");
+const battleLogItems    = $("battle-log-items");
+
+// Battle Analysis Modal
+const battleAnalysisModal   = $("battle-analysis-modal");
+const battleAnalysisBackdrop = $("battle-analysis-backdrop");
+const battleAnalysisTitle   = $("battle-analysis-title");
+const battleAnalysisClose   = $("battle-analysis-close");
+const battleAnalysisDecks   = $("battle-analysis-decks");
+const battleAnalysisLoading = $("battle-analysis-loading");
+const battleAnalysisStatus  = $("battle-analysis-status");
+const battleAnalysisResult  = $("battle-analysis-result");
+const battleAnalysisEmpty   = $("battle-analysis-empty");
+const runBattleAnalysisBtn  = $("run-battle-analysis-btn");
 
 // Recommendation Options
 const recOptionsToggle  = $("rec-options-toggle");
@@ -272,6 +305,18 @@ function bindEvents() {
 
   // My Decks
   newDeckBtn.addEventListener("click", () => openDeckBuilder(null));
+  showArchivedBtn.addEventListener("click", () => {
+    state.showArchived = !state.showArchived;
+    showArchivedBtn.textContent = state.showArchived ? "Hide Archived" : "Show Archived";
+    loadSavedDecks();
+  });
+
+  // Battle Log
+  syncBattlesBtn.addEventListener("click", syncBattles);
+  battleLogToggle.addEventListener("click", toggleBattleLog);
+  battleAnalysisBackdrop.addEventListener("click", closeBattleAnalysis);
+  battleAnalysisClose.addEventListener("click", closeBattleAnalysis);
+  runBattleAnalysisBtn.addEventListener("click", runBattleAnalysis);
 
   // History
   historyToggleBtn.addEventListener("click", toggleHistory);
@@ -320,7 +365,8 @@ function bindEvents() {
   // Global escape
   document.addEventListener("keydown", e => {
     if (e.key === "Escape") {
-      if (!deckDetailModal.classList.contains("hidden")) closeDetailModal();
+      if (!battleAnalysisModal.classList.contains("hidden")) closeBattleAnalysis();
+      else if (!deckDetailModal.classList.contains("hidden")) closeDetailModal();
       else if (!chatModal.classList.contains("hidden")) closeRecChat();
       else if (!deckBuilderModal.classList.contains("hidden")) closeDeckBuilder();
     }
@@ -367,7 +413,7 @@ async function activateProfile(profileId) {
   renderProfiles();
   renderCollection();
   historyLoaded = false;
-  await loadSavedDecks();
+  await Promise.all([loadSavedDecks(), loadBattles()]);
 }
 
 async function addProfile(tag) {
@@ -593,9 +639,10 @@ function renderCollection() {
 
 async function loadSavedDecks() {
   try {
-    const url = state.activeProfileId
+    let url = state.activeProfileId
       ? `/api/saved-decks?profile_id=${state.activeProfileId}`
       : "/api/saved-decks";
+    if (state.showArchived) url += (url.includes("?") ? "&" : "?") + "include_archived=true";
     const res = await fetch(url);
     const data = await res.json();
     state.savedDecks = data.decks || [];
@@ -628,22 +675,33 @@ function renderMyDecks() {
                     : deck.source === "api"            ? "📱 Imported from game"
                     : "🔧 Manual build";
 
+    const isArchived = deck.archived;
     el.innerHTML = `
       <div class="my-deck-card-header">
         <div>
           <div class="my-deck-card-title">${escapeHtml(deck.name)}</div>
           <div class="my-deck-card-source">${sourceLbl}</div>
         </div>
-        ${stale ? '<span class="tag tag-stale">⚠ Levels Updated</span>' : ""}
+        ${isArchived ? '<span class="tag tag-archived">Archived</span>' : ""}
+        ${stale && !isArchived ? '<span class="tag tag-stale">Levels Updated</span>' : ""}
       </div>
       <div class="my-deck-card-chips">${chipHtml}</div>
       <div class="my-deck-card-footer">
         <button class="btn btn-primary btn-sm open-saved-deck-btn">Open & Analyze</button>
         <button class="btn btn-ghost btn-sm edit-saved-deck-btn">Edit</button>
+        <button class="btn btn-ghost btn-sm archive-deck-btn">${isArchived ? "Restore" : "Archive"}</button>
       </div>
     `;
     el.querySelector(".open-saved-deck-btn").addEventListener("click", () => openDetailModal(deck.id));
     el.querySelector(".edit-saved-deck-btn").addEventListener("click", () => openDeckBuilder(deck.id));
+    el.querySelector(".archive-deck-btn").addEventListener("click", async () => {
+      await fetch(`/api/saved-decks/${deck.id}/archive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archived: !isArchived }),
+      });
+      await loadSavedDecks();
+    });
     myDecksGrid.appendChild(el);
   });
 }
@@ -1784,6 +1842,219 @@ function escapeHtml(str) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// BATTLE LOG
+// ══════════════════════════════════════════════════════════════════════════
+
+async function loadBattles() {
+  if (!state.activeProfileId) { state.battles = []; return; }
+  try {
+    const res = await fetch(`/api/profiles/${state.activeProfileId}/battles`);
+    const data = await res.json();
+    state.battles = data.battles || [];
+    battleCount.textContent = state.battles.length;
+  } catch { state.battles = []; }
+}
+
+function toggleBattleLog() {
+  const hidden = battleLogList.classList.toggle("hidden");
+  battleLogToggle.textContent = hidden ? "Show" : "Hide";
+  if (!hidden) renderBattleLog();
+}
+
+async function syncBattles() {
+  if (!state.activeProfileId) return;
+  syncBattlesBtn.disabled = true;
+  syncBattlesBtn.textContent = "Syncing...";
+  try {
+    const res = await fetch(`/api/profiles/${state.activeProfileId}/battles/sync`, { method: "POST" });
+    const data = await res.json();
+    if (data.battles) {
+      state.battles = data.battles;
+      battleCount.textContent = state.battles.length;
+      if (!battleLogList.classList.contains("hidden")) renderBattleLog();
+    }
+  } catch { /* ignore */ }
+  syncBattlesBtn.disabled = false;
+  syncBattlesBtn.textContent = "Sync Battles";
+}
+
+function renderBattleLog() {
+  battleLogItems.innerHTML = "";
+  if (!state.battles.length) {
+    battleLogEmpty.classList.remove("hidden");
+    return;
+  }
+  battleLogEmpty.classList.add("hidden");
+
+  state.battles.forEach(b => {
+    const resultClass = b.result === "win" ? "battle-win" : b.result === "loss" ? "battle-loss" : "battle-draw";
+    const teamChips = (b.team_cards || []).map(c => `<span class="mini-chip">${escapeHtml(c.name)}</span>`).join("");
+    const oppChips = (b.opponent_cards || []).map(c => `<span class="mini-chip">${escapeHtml(c.name)}</span>`).join("");
+    const date = b.battle_time ? new Date(b.battle_time.replace(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/, "$1-$2-$3T$4:$5:$6")).toLocaleString() : "";
+    const hasAnalysis = !!b.analysis;
+
+    const el = document.createElement("div");
+    el.className = `battle-log-item ${resultClass}`;
+    el.innerHTML = `
+      <div class="battle-log-header">
+        <div class="battle-result-badge ${resultClass}">${b.result.toUpperCase()}</div>
+        <div class="battle-score">${b.team_crowns} - ${b.opponent_crowns}</div>
+        <div class="battle-mode">${escapeHtml(b.game_mode || "Ladder")}</div>
+        <div class="battle-opponent">vs ${escapeHtml(b.opponent_name || "Opponent")}</div>
+        <div class="battle-time">${date}</div>
+        <button class="btn btn-sm ${hasAnalysis ? "btn-ghost" : "btn-primary"} analyze-battle-btn">
+          ${hasAnalysis ? "View Analysis" : "Analyze"}
+        </button>
+      </div>
+      <div class="battle-decks-row">
+        <div class="battle-deck-side">
+          <span class="battle-deck-label">Your deck:</span>
+          <div class="battle-deck-chips">${teamChips}</div>
+        </div>
+        <div class="battle-deck-side">
+          <span class="battle-deck-label">Opponent:</span>
+          <div class="battle-deck-chips">${oppChips}</div>
+        </div>
+      </div>
+    `;
+    el.querySelector(".analyze-battle-btn").addEventListener("click", () => openBattleAnalysis(b));
+    battleLogItems.appendChild(el);
+  });
+}
+
+function openBattleAnalysis(battle) {
+  state.battleAnalysis.battleId = battle.id;
+  state.battleAnalysis.battleData = battle;
+
+  const resultText = `${battle.result.toUpperCase()} ${battle.team_crowns}-${battle.opponent_crowns}`;
+  battleAnalysisTitle.textContent = `${resultText} vs ${battle.opponent_name || "Opponent"}`;
+
+  const teamChips = (battle.team_cards || []).map(c =>
+    `<div class="deck-card-item">${escapeHtml(c.name)} <span class="item-level">Lvl ${c.level}</span></div>`
+  ).join("");
+  const oppChips = (battle.opponent_cards || []).map(c =>
+    `<div class="deck-card-item">${escapeHtml(c.name)} <span class="item-level">Lvl ${c.level}</span></div>`
+  ).join("");
+  battleAnalysisDecks.innerHTML = `
+    <div class="battle-analysis-side">
+      <h4>Your Deck</h4>
+      <div class="deck-cards-row">${teamChips}</div>
+    </div>
+    <div class="battle-analysis-vs">VS</div>
+    <div class="battle-analysis-side">
+      <h4>${escapeHtml(battle.opponent_name || "Opponent")}'s Deck</h4>
+      <div class="deck-cards-row">${oppChips}</div>
+    </div>
+  `;
+
+  if (battle.analysis) {
+    showBattleAnalysisResult(battle.analysis);
+  } else {
+    battleAnalysisEmpty.style.display = "";
+    battleAnalysisResult.classList.add("hidden");
+    battleAnalysisLoading.classList.add("hidden");
+  }
+
+  battleAnalysisModal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+}
+
+function closeBattleAnalysis() {
+  battleAnalysisModal.classList.add("hidden");
+  document.body.style.overflow = "";
+}
+
+async function runBattleAnalysis() {
+  if (state.battleAnalysis.streaming) return;
+  const battleId = state.battleAnalysis.battleId;
+  if (!battleId) return;
+
+  state.battleAnalysis.streaming = true;
+  battleAnalysisEmpty.style.display = "none";
+  battleAnalysisResult.classList.add("hidden");
+  battleAnalysisLoading.classList.remove("hidden");
+  battleAnalysisStatus.textContent = "Analyzing matchup...";
+
+  let accumulated = "";
+  try {
+    const res = await fetch(`/api/battles/${battleId}/analysis`, { method: "POST" });
+    await streamSSE(res,
+      (chunk) => { accumulated += chunk; },
+      (msg) => {
+        if (msg.status) battleAnalysisStatus.textContent = msg.status;
+        if (msg.done) {
+          battleAnalysisLoading.classList.add("hidden");
+          if (msg.analysis) {
+            showBattleAnalysisResult(msg.analysis);
+            // Update cached data
+            const b = state.battles.find(x => x.id === battleId);
+            if (b) b.analysis = msg.analysis;
+          } else {
+            // Try to parse from accumulated text
+            try {
+              const j0 = accumulated.indexOf("{"), j1 = accumulated.lastIndexOf("}");
+              if (j0 !== -1 && j1 !== -1) {
+                const parsed = JSON.parse(accumulated.slice(j0, j1 + 1));
+                showBattleAnalysisResult(parsed);
+              }
+            } catch { battleAnalysisEmpty.style.display = ""; }
+          }
+        }
+      }
+    );
+  } catch (err) {
+    battleAnalysisLoading.classList.add("hidden");
+    battleAnalysisResult.innerHTML = `<div class="status-msg error">Error: ${escapeHtml(err.message)}</div>`;
+    battleAnalysisResult.classList.remove("hidden");
+  }
+  state.battleAnalysis.streaming = false;
+}
+
+function showBattleAnalysisResult(a) {
+  battleAnalysisEmpty.style.display = "none";
+  battleAnalysisLoading.classList.add("hidden");
+
+  const grade = a.grade || {};
+  const gradeClass = `grade-${(grade.overall || "C").replace(/[^A-DS]/g, "")}`;
+
+  const interactions = (a.key_interactions || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
+  const right = (a.what_went_right || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
+  const wrong = (a.what_went_wrong || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
+  const tips = (a.improvement_tips || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
+  const mvps = (a.card_mvps || []).map(s => `<span class="matchup-tag matchup-fav">${escapeHtml(s)}</span>`).join("");
+  const liabilities = (a.card_liabilities || []).map(s => `<span class="matchup-tag matchup-unfav">${escapeHtml(s)}</span>`).join("");
+
+  battleAnalysisResult.innerHTML = `
+    <div class="battle-analysis-overview">
+      <div class="grade-badge ${gradeClass}">${escapeHtml(grade.overall || "?")}</div>
+      <div class="battle-analysis-summary">
+        <div class="battle-matchup-line">
+          <span class="tag tag-archetype">${escapeHtml(a.your_deck_archetype || "")}</span>
+          <span>vs</span>
+          <span class="tag tag-archetype">${escapeHtml(a.opponent_deck_archetype || "")}</span>
+          <span class="matchup-tag matchup-${a.matchup_favorability === "Favorable" ? "fav" : a.matchup_favorability === "Unfavorable" ? "unfav" : "even"}">${escapeHtml(a.matchup_favorability || "")}</span>
+        </div>
+        <p>${escapeHtml(a.matchup_summary || "")}</p>
+        ${grade.summary ? `<p class="grade-summary">${escapeHtml(grade.summary)}</p>` : ""}
+      </div>
+    </div>
+    <div class="strategy-grid">
+      ${interactions ? `<div class="strategy-box full-width"><h4>Key Interactions</h4><ul>${interactions}</ul></div>` : ""}
+      ${right ? `<div class="strategy-box"><h4>What Worked</h4><ul>${right}</ul></div>` : ""}
+      ${wrong ? `<div class="strategy-box"><h4>What Didn't Work</h4><ul>${wrong}</ul></div>` : ""}
+      ${tips ? `<div class="strategy-box full-width"><h4>How to Improve</h4><ul>${tips}</ul></div>` : ""}
+    </div>
+    ${mvps || liabilities ? `
+    <div class="battle-card-assessment">
+      ${mvps ? `<div><strong>MVPs:</strong> ${mvps}</div>` : ""}
+      ${liabilities ? `<div><strong>Liabilities:</strong> ${liabilities}</div>` : ""}
+    </div>` : ""}
+  `;
+  battleAnalysisResult.classList.remove("hidden");
 }
 
 

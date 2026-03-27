@@ -6,8 +6,10 @@ from cr_context import CR_TOOLS, cr_available, dispatch_cr_tool
 from prompts import (
     _build_recommend_system,
     ANALYSIS_SYSTEM_PROMPT,
+    BATTLE_ANALYSIS_SYSTEM_PROMPT,
     recommend_user_msg,
     analysis_user_msg,
+    battle_analysis_user_msg,
     rec_chat_system,
     saved_deck_chat_system,
 )
@@ -206,6 +208,7 @@ class DeckAnalyzer:
         num_decks: int = 3,
         strategies: list[str] | None = None,
         selected_cards: list[str] | None = None,
+        previous_decks: list[list[str]] | None = None,
     ):
         """Deck recommendations via agentic loop. Yields (kind, value) tuples."""
         system = _build_recommend_system(num_decks=num_decks, strategies=strategies)
@@ -214,10 +217,16 @@ class DeckAnalyzer:
             num_decks=num_decks,
             strategies=strategies,
             selected_cards=selected_cards,
+            previous_decks=previous_decks,
         )
         messages = [{"role": "user", "content": user_msg}]
         max_tokens = 4000 + (num_decks - 3) * 1200  # scale token budget with deck count
         yield from self._buffered_agent(system, messages, max_tokens, "recommend")
+
+    def analyze_battle_stream(self, battle: dict):
+        """Battle matchup analysis via agentic loop. Yields (kind, value) tuples."""
+        messages = [{"role": "user", "content": battle_analysis_user_msg(battle)}]
+        yield from self._buffered_agent(BATTLE_ANALYSIS_SYSTEM_PROMPT, messages, 2500, "battle-analysis")
 
     def chat_stream(self, deck: dict, cards: list[dict], history: list[dict], user_message: str, player_tag: str | None = None):
         """Recommendation deck chat via agentic loop. Yields (kind, value) tuples."""

@@ -106,6 +106,7 @@ body {
   margin-bottom: 16px;
 }
 .section-header h2 { margin-bottom: 0; }
+.section-header-actions { display: flex; gap: 6px; align-items: center; }
 .text-muted { color: var(--text-muted); }
 
 /* ============================================================
@@ -506,6 +507,7 @@ select { cursor: pointer; width: auto; min-width: 100px; }
 .tag-tier-C { background: rgba(227,179,65,0.12); color: #e3b341; border: 1px solid rgba(227,179,65,0.25); }
 .tag-tier-D { background: rgba(248,81,73,0.12); color: #f85149; border: 1px solid rgba(248,81,73,0.25); }
 .tag-stale  { background: rgba(245,166,35,0.12); color: #e3b341; border: 1px solid rgba(245,166,35,0.25); font-size: 0.72rem; }
+.tag-archived { background: rgba(139,148,158,0.12); color: var(--text-muted); border: 1px solid rgba(139,148,158,0.25); font-size: 0.72rem; }
 
 /* ============================================================
    Results Section
@@ -1383,6 +1385,71 @@ select { cursor: pointer; width: auto; min-width: 100px; }
   padding: 14px;
   text-align: center;
 }
+
+/* ============================================================
+   Battle Log
+   ============================================================ */
+.battle-log-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.battle-log-item {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--border);
+}
+.battle-log-item.battle-win { border-left-color: var(--cr-green); }
+.battle-log-item.battle-loss { border-left-color: #f85149; }
+.battle-log-item.battle-draw { border-left-color: var(--cr-gold); }
+
+.battle-log-header {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.battle-result-badge {
+  font-size: 0.75rem; font-weight: 800; padding: 2px 8px; border-radius: 4px;
+  text-transform: uppercase;
+}
+.battle-result-badge.battle-win { background: rgba(63,185,80,0.2); color: var(--cr-green); }
+.battle-result-badge.battle-loss { background: rgba(248,81,73,0.15); color: #f85149; }
+.battle-result-badge.battle-draw { background: rgba(245,166,35,0.15); color: var(--cr-gold); }
+.battle-score { font-weight: 800; font-size: 0.9rem; }
+.battle-mode { font-size: 0.78rem; color: var(--text-muted); }
+.battle-opponent { font-size: 0.82rem; }
+.battle-time { font-size: 0.72rem; color: var(--text-muted); margin-left: auto; }
+
+.battle-decks-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px;
+}
+.battle-deck-side { display: flex; flex-direction: column; gap: 4px; }
+.battle-deck-label { font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
+.battle-deck-chips { display: flex; flex-wrap: wrap; gap: 3px; }
+
+/* ── Battle Analysis Modal ────────────────────────────────── */
+.modal-wide { max-width: 720px; }
+
+.battle-analysis-decks {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+  flex-wrap: wrap; justify-content: center;
+}
+.battle-analysis-side { flex: 1; min-width: 200px; }
+.battle-analysis-side h4 { font-size: 0.82rem; font-weight: 700; margin-bottom: 6px; }
+.battle-analysis-vs {
+  font-size: 1.2rem; font-weight: 900; color: var(--text-muted);
+  flex-shrink: 0; padding: 0 8px;
+}
+
+.battle-analysis-overview {
+  display: flex; align-items: flex-start; gap: 14px;
+  margin-bottom: 14px; flex-wrap: wrap;
+}
+.battle-analysis-summary { flex: 1; min-width: 200px; }
+.battle-matchup-line {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px;
+}
+.battle-card-assessment {
+  display: flex; flex-direction: column; gap: 6px; margin-top: 10px;
+  font-size: 0.85rem;
+}
+.battle-card-assessment > div { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
 /* ============================================================
    Responsive
