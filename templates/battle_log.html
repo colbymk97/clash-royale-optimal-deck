@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Battle Log — CR Deck AI</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="logo">
+        <a href="/" class="nav-back-link">&#8592; Deck Builder</a>
+        <span style="margin: 0 10px; opacity:.3">|</span>
+        <span class="crown">♛</span><span>Battle Log</span>
+      </div>
+      <p id="battle-profile-label" class="tagline"></p>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="card-section">
+      <div class="section-header">
+        <div>
+          <h2>Recent Battles <span id="battle-count" class="badge">0</span></h2>
+          <p class="hint" style="margin:0">Review past matches and run AI matchup analysis</p>
+        </div>
+        <button id="sync-battles-btn" class="btn btn-primary btn-sm">Sync Battles</button>
+      </div>
+
+      <!-- Sync status -->
+      <div id="sync-status" class="stream-status hidden">
+        <div class="spinner"></div>
+        <span id="sync-msg">Syncing battles...</span>
+      </div>
+
+      <!-- Empty / list -->
+      <div id="battle-log-empty" class="empty-state hidden">
+        No battles recorded yet. Click <strong>Sync Battles</strong> to import your recent matches.
+      </div>
+      <div id="battle-log-items"></div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>Powered by Claude AI + Clash Royale API &mdash; Not affiliated with Supercell</p>
+  </footer>
+
+  <!-- Battle Analysis Modal -->
+  <div id="battle-analysis-modal" class="modal-overlay hidden" role="dialog">
+    <div class="modal-backdrop" id="battle-analysis-backdrop"></div>
+    <div class="modal-dialog modal-wide">
+      <div class="modal-header">
+        <h3 id="battle-analysis-title">Battle Analysis</h3>
+        <button id="battle-analysis-close" class="btn btn-ghost btn-sm">&#10005; Close</button>
+      </div>
+      <div class="modal-body">
+        <div id="battle-analysis-decks" class="battle-analysis-decks"></div>
+
+        <!-- Stream status (same pattern as main page) -->
+        <div id="battle-analysis-stream-status" class="stream-status hidden">
+          <div class="spinner"></div>
+          <span id="battle-analysis-status-msg">Analyzing matchup...</span>
+        </div>
+
+        <div id="battle-analysis-result" class="analysis-result hidden"></div>
+        <div id="battle-analysis-token-usage" class="token-usage-bar hidden"></div>
+
+        <div id="battle-analysis-empty" class="analysis-empty">
+          <p>Get a detailed AI breakdown of this matchup — what worked, what didn't, and how to improve.</p>
+          <button id="run-battle-analysis-btn" class="btn btn-primary">Run Matchup Analysis</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/battle_log.js"></script>
+</body>
+</html>

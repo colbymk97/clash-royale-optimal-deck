@@ -32,7 +32,7 @@ async def _handle(tool, args):
         or os.environ.get("CLASH_ROYALE_API_KEY", "")
     )
     base_url = os.environ.get(
-        "CLASH_ROYALE_BASE_URL", "https://api.clashroyale.com/v1"
+        "CLASH_ROYALE_BASE_URL", "https://proxy.royaleapi.dev/v1"
     )
 
     if not token:

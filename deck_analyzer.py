@@ -105,6 +105,22 @@ class DeckAnalyzer:
         and ("usage", dict) once at the end with cumulative token counts.
         """
         usage_totals = {"input_tokens": 0, "output_tokens": 0}
+
+        def _accum(r):
+            try:
+                usage_totals["input_tokens"] += r.usage.input_tokens
+                usage_totals["output_tokens"] += r.usage.output_tokens
+            except Exception:
+                pass
+
+        def _emit_text_and_usage(r):
+            for block in r.content:
+                if hasattr(block, "text") and block.text:
+                    yield ("text", block.text)
+            cost = (usage_totals["input_tokens"] * 3 + usage_totals["output_tokens"] * 15) / 1_000_000
+            yield ("usage", {**usage_totals, "cost": round(cost, 6)})
+            self._log_usage_msg(label, r)
+
         for _ in range(max_rounds):
             resp = self.client.messages.create(
                 model="claude-sonnet-4-6",
@@ -113,11 +129,7 @@ class DeckAnalyzer:
                 tools=_all_tools(),
                 messages=messages,
             )
-            try:
-                usage_totals["input_tokens"] += resp.usage.input_tokens
-                usage_totals["output_tokens"] += resp.usage.output_tokens
-            except Exception:
-                pass
+            _accum(resp)
 
             if resp.stop_reason == "tool_use":
                 tool_blocks = [b for b in resp.content if b.type == "tool_use"]
@@ -133,13 +145,20 @@ class DeckAnalyzer:
                 messages.append({"role": "assistant", "content": resp.content})
                 messages.append({"role": "user", "content": results})
             else:
-                for block in resp.content:
-                    if hasattr(block, "text") and block.text:
-                        yield ("text", block.text)
-                cost = (usage_totals["input_tokens"] * 3 + usage_totals["output_tokens"] * 15) / 1_000_000
-                yield ("usage", {**usage_totals, "cost": round(cost, 6)})
-                self._log_usage_msg(label, resp)
+                yield from _emit_text_and_usage(resp)
                 return
+
+        # All rounds used tool_use — force one final text-only call so we always
+        # produce a response rather than silently returning nothing.
+        yield ("status", "Generating response…")
+        final = self.client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=max_tokens,
+            system=system,
+            messages=messages,
+        )
+        _accum(final)
+        yield from _emit_text_and_usage(final)
 
     def _streaming_agent(self, system: str, messages: list, max_tokens: int, label: str):
         """
@@ -258,7 +277,7 @@ class DeckAnalyzer:
             previous_decks=previous_decks,
         )
         messages = [{"role": "user", "content": user_msg}]
-        max_tokens = 4000 + (num_decks - 3) * 1200  # scale token budget with deck count
+        max_tokens = min(8192, 4000 + num_decks * 1000)  # scales with deck count, capped at model max
         yield from self._buffered_agent(system, messages, max_tokens, "recommend", max_rounds=6)
 
     def analyze_battle_stream(self, battle: dict):

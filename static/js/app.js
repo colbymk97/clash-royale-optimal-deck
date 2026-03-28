@@ -42,14 +42,8 @@ const state = {
     selectedCards: [],    // card name strings for custom pool
   },
 
-  // Battle log
-  battles: [],
   showArchived: false,
-  battleAnalysis: {
-    battleId: null,
-    battleData: null,
-    streaming: false,
-  },
+  collectionCollapsed: true,
 };
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
@@ -151,27 +145,6 @@ const recChatTokenFooter  = $("rec-chat-token-footer");
 // Archive
 const showArchivedBtn   = $("show-archived-btn");
 
-// Battle Log
-const battleLogSection  = $("battle-log-section");
-const battleCount       = $("battle-count");
-const syncBattlesBtn    = $("sync-battles-btn");
-const battleLogToggle   = $("battle-log-toggle-btn");
-const battleLogList     = $("battle-log-list");
-const battleLogEmpty    = $("battle-log-empty");
-const battleLogItems    = $("battle-log-items");
-
-// Battle Analysis Modal
-const battleAnalysisModal   = $("battle-analysis-modal");
-const battleAnalysisBackdrop = $("battle-analysis-backdrop");
-const battleAnalysisTitle   = $("battle-analysis-title");
-const battleAnalysisClose   = $("battle-analysis-close");
-const battleAnalysisDecks   = $("battle-analysis-decks");
-const battleAnalysisLoading = $("battle-analysis-loading");
-const battleAnalysisStatus  = $("battle-analysis-status");
-const battleAnalysisResult  = $("battle-analysis-result");
-const battleAnalysisEmpty   = $("battle-analysis-empty");
-const runBattleAnalysisBtn  = $("run-battle-analysis-btn");
-
 // Recommendation Options
 const recOptionsToggle  = $("rec-options-toggle");
 const recOptionsPanel   = $("rec-options-panel");
@@ -179,11 +152,11 @@ const recNumMinus       = $("rec-num-minus");
 const recNumPlus        = $("rec-num-plus");
 const recNumValue       = $("rec-num-value");
 const strategyChipsEl   = $("strategy-chips");
-const cardPoolSearch    = $("card-pool-search");
 const cardPoolClear     = $("card-pool-clear");
-const cardPoolSuggestions = $("card-pool-suggestions");
-const cardPoolSelected  = $("card-pool-selected");
+const cardPoolGrid      = $("card-pool-grid");
 const cardPoolCount     = $("card-pool-count");
+const collectionToggleBtn = $("collection-toggle-btn");
+const collectionExpandRow = $("collection-expand-row");
 
 // ── Init ───────────────────────────────────────────────────────────────────
 async function init() {
@@ -274,6 +247,7 @@ function bindEvents() {
     recOptionsPanel.classList.toggle("hidden");
     recOptionsToggle.textContent = recOptionsPanel.classList.contains("hidden")
       ? "Customize Recommendations" : "Hide Options";
+    if (!recOptionsPanel.classList.contains("hidden")) renderCardPoolGrid();
   });
   recNumMinus.addEventListener("click", () => {
     state.recOptions.numDecks = Math.max(1, state.recOptions.numDecks - 1);
@@ -294,20 +268,16 @@ function bindEvents() {
       state.recOptions.strategies = state.recOptions.strategies.filter(s => s !== strat);
     }
   });
-  cardPoolSearch.addEventListener("input", renderCardPoolSuggestions);
-  cardPoolSearch.addEventListener("focus", renderCardPoolSuggestions);
-  cardPoolSearch.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { cardPoolSuggestions.classList.add("hidden"); cardPoolSearch.blur(); }
-  });
-  document.addEventListener("click", (e) => {
-    if (!cardPoolSuggestions.contains(e.target) && e.target !== cardPoolSearch) {
-      cardPoolSuggestions.classList.add("hidden");
-    }
-  });
   cardPoolClear.addEventListener("click", () => {
     state.recOptions.selectedCards = [];
-    renderCardPoolSelected();
+    renderCardPoolGrid();
   });
+  if (collectionToggleBtn) {
+    collectionToggleBtn.addEventListener("click", () => {
+      state.collectionCollapsed = !state.collectionCollapsed;
+      renderCollection();
+    });
+  }
 
   // My Decks
   newDeckBtn.addEventListener("click", () => openDeckBuilder(null));
@@ -316,13 +286,6 @@ function bindEvents() {
     showArchivedBtn.textContent = state.showArchived ? "Hide Archived" : "Show Archived";
     loadSavedDecks();
   });
-
-  // Battle Log
-  syncBattlesBtn.addEventListener("click", syncBattles);
-  battleLogToggle.addEventListener("click", toggleBattleLog);
-  battleAnalysisBackdrop.addEventListener("click", closeBattleAnalysis);
-  battleAnalysisClose.addEventListener("click", closeBattleAnalysis);
-  runBattleAnalysisBtn.addEventListener("click", runBattleAnalysis);
 
   // History
   historyToggleBtn.addEventListener("click", toggleHistory);
@@ -371,8 +334,7 @@ function bindEvents() {
   // Global escape
   document.addEventListener("keydown", e => {
     if (e.key === "Escape") {
-      if (!battleAnalysisModal.classList.contains("hidden")) closeBattleAnalysis();
-      else if (!deckDetailModal.classList.contains("hidden")) closeDetailModal();
+      if (!deckDetailModal.classList.contains("hidden")) closeDetailModal();
       else if (!chatModal.classList.contains("hidden")) closeRecChat();
       else if (!deckBuilderModal.classList.contains("hidden")) closeDeckBuilder();
     }
@@ -419,7 +381,7 @@ async function activateProfile(profileId) {
   renderProfiles();
   renderCollection();
   historyLoaded = false;
-  await Promise.all([loadSavedDecks(), loadBattles()]);
+  await loadSavedDecks();
 }
 
 async function addProfile(tag) {
@@ -608,6 +570,8 @@ function updateSortButtons() {
   });
 }
 
+const COLLECTION_PREVIEW = 24; // cards shown when collapsed
+
 function renderCollection() {
   cardGrid.innerHTML = "";
 
@@ -621,11 +585,15 @@ function renderCollection() {
   if (!state.collection.length) {
     cardCountBadge.textContent = "0 cards";
     collectionHint.style.display = "";
+    if (collectionExpandRow) collectionExpandRow.classList.add("hidden");
     generateBtn.disabled = true;
     return;
   }
 
-  getSortedCollection().forEach(card => {
+  const sorted = getSortedCollection();
+  const visible = state.collectionCollapsed ? sorted.slice(0, COLLECTION_PREVIEW) : sorted;
+
+  visible.forEach(card => {
     const chip = document.createElement("div");
     chip.className = "card-chip";
     chip.innerHTML = `<span class="chip-level">${card.level}</span><span class="chip-name">${escapeHtml(card.name)}</span>`;
@@ -636,6 +604,20 @@ function renderCollection() {
   cardCountBadge.textContent = `${count} card${count !== 1 ? "s" : ""}`;
   collectionHint.style.display = "none";
   generateBtn.disabled = count < 8;
+
+  if (collectionExpandRow) {
+    if (count > COLLECTION_PREVIEW) {
+      collectionExpandRow.classList.remove("hidden");
+      const hidden = count - COLLECTION_PREVIEW;
+      if (collectionToggleBtn) {
+        collectionToggleBtn.textContent = state.collectionCollapsed
+          ? `Show all ${count} cards (${hidden} more) ▼`
+          : "Show fewer ▲";
+      }
+    } else {
+      collectionExpandRow.classList.add("hidden");
+    }
+  }
 }
 
 
@@ -994,10 +976,12 @@ function renderDetailCards(deck) {
 
 function updateDetailMetaTags(analysis) {
   detailMetaTags.innerHTML = "";
-  if (analysis.tier) {
+  // Handle both deep-analysis format (tier) and recommendation format (grade.overall)
+  const tier = analysis.tier || analysis.grade?.overall;
+  if (tier) {
     const t = document.createElement("span");
-    t.className = `tag tag-tier-${analysis.tier}`;
-    t.textContent = `Tier ${analysis.tier}`;
+    t.className = `tag tag-tier-${tier}`;
+    t.textContent = `Tier ${tier}`;
     detailMetaTags.appendChild(t);
   }
   if (analysis.archetype) {
@@ -1145,13 +1129,33 @@ function showAnalysisResult(a, collectionSnapshot) {
   analysisEmpty.style.display = "none";
   analysisLoading.classList.remove("visible");
 
-  const collectionNames = new Set((collectionSnapshot || state.collection).map(c => c.name.toLowerCase()));
+  // Normalize: handle both deep-analysis schema and recommendation schema
+  const tier         = a.tier || a.grade?.overall || "?";
+  const tierExpl     = a.tier_explanation || a.grade?.summary || "";
+  const overview     = a.meta_viability || a.description || "";
+  const strategy     = a.strategy || null;  // rec schema
+  const coaching     = a.coaching || null;  // deep-analysis schema
+
+  // Strengths: prefer explicit strengths, fall back to key_synergies from rec
+  const strengths    = a.strengths?.length ? a.strengths : (strategy?.key_synergies || []);
+  const weaknesses   = a.weaknesses || [];
 
   const tierColors = { S: "tag-tier-S", A: "tag-tier-A", B: "tag-tier-B", C: "tag-tier-C", D: "tag-tier-D" };
-  const tierClass = tierColors[a.tier] || "tag-tier-B";
+  const tierClass  = tierColors[tier] || "tag-tier-B";
 
-  const strengthsHtml = (a.strengths || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
-  const weaknessesHtml = (a.weaknesses || []).map(w => `<li>${escapeHtml(w)}</li>`).join("");
+  const collectionNames = new Set((collectionSnapshot || state.collection).map(c => c.name.toLowerCase()));
+
+  const strengthsHtml  = strengths.map(s => `<li>${escapeHtml(s)}</li>`).join("");
+  const weaknessesHtml = weaknesses.map(w => `<li>${escapeHtml(w)}</li>`).join("");
+
+  // Strategy sections (rec format only)
+  const strategyHtml = strategy ? `
+    <div class="analysis-section-label">Strategy</div>
+    ${strategy.general  ? `<p class="strategy-para"><strong>Gameplan:</strong> ${escapeHtml(strategy.general)}</p>` : ""}
+    ${strategy.offense  ? `<p class="strategy-para"><strong>Offense:</strong> ${escapeHtml(strategy.offense)}</p>` : ""}
+    ${strategy.defense  ? `<p class="strategy-para"><strong>Defense:</strong> ${escapeHtml(strategy.defense)}</p>` : ""}
+    ${strategy.matchup_tips?.length ? `<p class="strategy-para"><strong>Matchup Tips:</strong></p><ul>${strategy.matchup_tips.map(t => `<li>${escapeHtml(t)}</li>`).join("")}</ul>` : ""}
+  ` : "";
 
   const swapsHtml = (a.suggested_swaps || []).map(swap => {
     const available = swap.in_collection !== false && collectionNames.has((swap.add || "").toLowerCase());
@@ -1167,25 +1171,28 @@ function showAnalysisResult(a, collectionSnapshot) {
       </div>`;
   }).join("");
 
-  const matchups = a.matchups || {};
-  const matchupFav   = (matchups.favorable || []).map(m => `<li>${escapeHtml(m)}</li>`).join("");
+  const matchups     = a.matchups || {};
+  // rec uses "even", deep analysis uses "neutral"
+  const matchupFav   = (matchups.favorable   || []).map(m => `<li>${escapeHtml(m)}</li>`).join("");
   const matchupUnfav = (matchups.unfavorable || []).map(m => `<li>${escapeHtml(m)}</li>`).join("");
-  const matchupNeu   = (matchups.neutral || []).map(m => `<li>${escapeHtml(m)}</li>`).join("");
+  const matchupNeu   = (matchups.neutral || matchups.even || []).map(m => `<li>${escapeHtml(m)}</li>`).join("");
 
   analysisResult.innerHTML = `
     <div class="analysis-top-bar">
-      <div class="tier-badge ${tierClass}">${escapeHtml(a.tier || "?")}</div>
+      <div class="tier-badge ${tierClass}">${escapeHtml(tier)}</div>
       <div>
-        <div class="analysis-viability">${escapeHtml(a.meta_viability || "")}</div>
-        <div class="analysis-tier-expl">${escapeHtml(a.tier_explanation || "")}</div>
+        ${overview   ? `<div class="analysis-viability">${escapeHtml(overview)}</div>` : ""}
+        ${tierExpl   ? `<div class="analysis-tier-expl">${escapeHtml(tierExpl)}</div>` : ""}
       </div>
     </div>
 
     ${(strengthsHtml || weaknessesHtml) ? `
     <div class="analysis-grid">
-      ${strengthsHtml ? `<div class="analysis-box strengths"><h5>Strengths</h5><ul>${strengthsHtml}</ul></div>` : ""}
+      ${strengthsHtml  ? `<div class="analysis-box strengths"><h5>Strengths</h5><ul>${strengthsHtml}</ul></div>` : ""}
       ${weaknessesHtml ? `<div class="analysis-box weaknesses"><h5>Weaknesses</h5><ul>${weaknessesHtml}</ul></div>` : ""}
     </div>` : ""}
+
+    ${strategyHtml ? `<div class="analysis-strategy">${strategyHtml}</div>` : ""}
 
     ${swapsHtml ? `
     <div>
@@ -1203,13 +1210,18 @@ function showAnalysisResult(a, collectionSnapshot) {
       </div>
     </div>` : ""}
 
-    ${a.coaching ? `
+    ${coaching ? `
     <div>
       <div class="analysis-section-label">Coaching Advice</div>
-      <div class="coaching-text">${escapeHtml(a.coaching)}</div>
+      <div class="coaching-text">${escapeHtml(coaching)}</div>
     </div>` : ""}
+
+    <div class="analysis-rerun-row">
+      <button class="btn btn-ghost btn-sm rerun-analysis-btn">↺ Re-run Deep Analysis</button>
+    </div>
   `;
 
+  analysisResult.querySelector(".rerun-analysis-btn").addEventListener("click", runDeckAnalysis);
   analysisResult.classList.remove("hidden");
 }
 
@@ -1297,47 +1309,38 @@ function appendDetailChatMsg(role, content, timestamp = null) {
 // ══════════════════════════════════════════════════════════════════════════
 
 // ── Card Pool Picker ────────────────────────────────────────────────────
-function renderCardPoolSuggestions() {
-  const q = cardPoolSearch.value.trim().toLowerCase();
-  if (!q || state.collection.length === 0) {
-    cardPoolSuggestions.classList.add("hidden");
-    return;
-  }
-  const already = new Set(state.recOptions.selectedCards.map(n => n.toLowerCase()));
-  const matches = state.collection
-    .filter(c => c.name.toLowerCase().includes(q) && !already.has(c.name.toLowerCase()))
-    .slice(0, 12);
-  if (!matches.length) { cardPoolSuggestions.classList.add("hidden"); return; }
-  cardPoolSuggestions.innerHTML = matches.map(c =>
-    `<div class="card-pool-suggestion-item" data-name="${escapeHtml(c.name)}">${escapeHtml(c.name)} <span class="text-muted">Lvl ${c.level}</span></div>`
-  ).join("");
-  cardPoolSuggestions.classList.remove("hidden");
-  cardPoolSuggestions.querySelectorAll(".card-pool-suggestion-item").forEach(item => {
-    item.addEventListener("click", () => {
-      state.recOptions.selectedCards.push(item.dataset.name);
-      cardPoolSearch.value = "";
-      cardPoolSuggestions.classList.add("hidden");
-      renderCardPoolSelected();
-    });
-  });
-}
-
-function renderCardPoolSelected() {
-  if (!state.recOptions.selectedCards.length) {
-    cardPoolSelected.innerHTML = "";
+function renderCardPoolGrid() {
+  if (!cardPoolGrid) return;
+  if (!state.collection.length) {
+    cardPoolGrid.innerHTML = `<p class="hint">Load a player profile to select cards.</p>`;
     cardPoolCount.textContent = "";
     return;
   }
-  cardPoolSelected.innerHTML = state.recOptions.selectedCards.map(name =>
-    `<span class="card-pool-chip">${escapeHtml(name)}<button class="card-pool-chip-remove" data-name="${escapeHtml(name)}">x</button></span>`
-  ).join("");
-  cardPoolCount.textContent = `${state.recOptions.selectedCards.length} cards selected`;
-  cardPoolSelected.querySelectorAll(".card-pool-chip-remove").forEach(btn => {
-    btn.addEventListener("click", () => {
-      state.recOptions.selectedCards = state.recOptions.selectedCards.filter(n => n !== btn.dataset.name);
-      renderCardPoolSelected();
+
+  const selected = new Set(state.recOptions.selectedCards.map(n => n.toLowerCase()));
+  const sorted   = [...state.collection].sort((a, b) => b.level - a.level || a.name.localeCompare(b.name));
+
+  cardPoolGrid.innerHTML = "";
+  sorted.forEach(card => {
+    const chip = document.createElement("div");
+    const isSelected = selected.has(card.name.toLowerCase());
+    chip.className = `card-pool-chip-pick${isSelected ? " selected" : ""}`;
+    chip.dataset.name = card.name;
+    chip.innerHTML = `<span class="chip-level">${card.level}</span><span class="chip-name">${escapeHtml(card.name)}</span>`;
+    chip.addEventListener("click", () => {
+      const idx = state.recOptions.selectedCards.findIndex(n => n.toLowerCase() === card.name.toLowerCase());
+      if (idx === -1) {
+        state.recOptions.selectedCards.push(card.name);
+      } else {
+        state.recOptions.selectedCards.splice(idx, 1);
+      }
+      renderCardPoolGrid();
     });
+    cardPoolGrid.appendChild(chip);
   });
+
+  const n = state.recOptions.selectedCards.length;
+  cardPoolCount.textContent = n ? `${n} card${n !== 1 ? "s" : ""} selected` : "";
 }
 
 // ── Generate Decks ──────────────────────────────────────────────────────
@@ -1535,6 +1538,14 @@ function buildRecDeckCard(deck, idx, deckId = null) {
         });
         const data = await res.json();
         if (!data.error) {
+          // Persist the recommendation as the deck's initial analysis so it shows immediately
+          try {
+            await fetch(`/api/saved-decks/${data.id}/analysis`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ analysis: deck, collection: state.collection }),
+            });
+          } catch { /* non-critical */ }
           saveBtn.textContent = "✓ Saved";
           saveBtn.classList.add("saved");
           await loadSavedDecks();
@@ -1875,219 +1886,6 @@ function escapeHtml(str) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
-}
-
-
-// ══════════════════════════════════════════════════════════════════════════
-// BATTLE LOG
-// ══════════════════════════════════════════════════════════════════════════
-
-async function loadBattles() {
-  if (!state.activeProfileId) { state.battles = []; return; }
-  try {
-    const res = await fetch(`/api/profiles/${state.activeProfileId}/battles`);
-    const data = await res.json();
-    state.battles = data.battles || [];
-    battleCount.textContent = state.battles.length;
-  } catch { state.battles = []; }
-}
-
-function toggleBattleLog() {
-  const hidden = battleLogList.classList.toggle("hidden");
-  battleLogToggle.textContent = hidden ? "Show" : "Hide";
-  if (!hidden) renderBattleLog();
-}
-
-async function syncBattles() {
-  if (!state.activeProfileId) return;
-  syncBattlesBtn.disabled = true;
-  syncBattlesBtn.textContent = "Syncing...";
-  try {
-    const res = await fetch(`/api/profiles/${state.activeProfileId}/battles/sync`, { method: "POST" });
-    const data = await res.json();
-    if (data.battles) {
-      state.battles = data.battles;
-      battleCount.textContent = state.battles.length;
-      if (!battleLogList.classList.contains("hidden")) renderBattleLog();
-    }
-  } catch { /* ignore */ }
-  syncBattlesBtn.disabled = false;
-  syncBattlesBtn.textContent = "Sync Battles";
-}
-
-function renderBattleLog() {
-  battleLogItems.innerHTML = "";
-  if (!state.battles.length) {
-    battleLogEmpty.classList.remove("hidden");
-    return;
-  }
-  battleLogEmpty.classList.add("hidden");
-
-  state.battles.forEach(b => {
-    const resultClass = b.result === "win" ? "battle-win" : b.result === "loss" ? "battle-loss" : "battle-draw";
-    const teamChips = (b.team_cards || []).map(c => `<span class="mini-chip">${escapeHtml(c.name)}</span>`).join("");
-    const oppChips = (b.opponent_cards || []).map(c => `<span class="mini-chip">${escapeHtml(c.name)}</span>`).join("");
-    const date = b.battle_time ? new Date(b.battle_time.replace(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/, "$1-$2-$3T$4:$5:$6")).toLocaleString() : "";
-    const hasAnalysis = !!b.analysis;
-
-    const el = document.createElement("div");
-    el.className = `battle-log-item ${resultClass}`;
-    el.innerHTML = `
-      <div class="battle-log-header">
-        <div class="battle-result-badge ${resultClass}">${b.result.toUpperCase()}</div>
-        <div class="battle-score">${b.team_crowns} - ${b.opponent_crowns}</div>
-        <div class="battle-mode">${escapeHtml(b.game_mode || "Ladder")}</div>
-        <div class="battle-opponent">vs ${escapeHtml(b.opponent_name || "Opponent")}</div>
-        <div class="battle-time">${date}</div>
-        <button class="btn btn-sm ${hasAnalysis ? "btn-ghost" : "btn-primary"} analyze-battle-btn">
-          ${hasAnalysis ? "View Analysis" : "Analyze"}
-        </button>
-      </div>
-      <div class="battle-decks-row">
-        <div class="battle-deck-side">
-          <span class="battle-deck-label">Your deck:</span>
-          <div class="battle-deck-chips">${teamChips}</div>
-        </div>
-        <div class="battle-deck-side">
-          <span class="battle-deck-label">Opponent:</span>
-          <div class="battle-deck-chips">${oppChips}</div>
-        </div>
-      </div>
-    `;
-    el.querySelector(".analyze-battle-btn").addEventListener("click", () => openBattleAnalysis(b));
-    battleLogItems.appendChild(el);
-  });
-}
-
-function openBattleAnalysis(battle) {
-  state.battleAnalysis.battleId = battle.id;
-  state.battleAnalysis.battleData = battle;
-
-  const resultText = `${battle.result.toUpperCase()} ${battle.team_crowns}-${battle.opponent_crowns}`;
-  battleAnalysisTitle.textContent = `${resultText} vs ${battle.opponent_name || "Opponent"}`;
-
-  const teamChips = (battle.team_cards || []).map(c =>
-    `<div class="deck-card-item">${escapeHtml(c.name)} <span class="item-level">Lvl ${c.level}</span></div>`
-  ).join("");
-  const oppChips = (battle.opponent_cards || []).map(c =>
-    `<div class="deck-card-item">${escapeHtml(c.name)} <span class="item-level">Lvl ${c.level}</span></div>`
-  ).join("");
-  battleAnalysisDecks.innerHTML = `
-    <div class="battle-analysis-side">
-      <h4>Your Deck</h4>
-      <div class="deck-cards-row">${teamChips}</div>
-    </div>
-    <div class="battle-analysis-vs">VS</div>
-    <div class="battle-analysis-side">
-      <h4>${escapeHtml(battle.opponent_name || "Opponent")}'s Deck</h4>
-      <div class="deck-cards-row">${oppChips}</div>
-    </div>
-  `;
-
-  if (battle.analysis) {
-    showBattleAnalysisResult(battle.analysis);
-  } else {
-    battleAnalysisEmpty.style.display = "";
-    battleAnalysisResult.classList.add("hidden");
-    battleAnalysisLoading.classList.add("hidden");
-  }
-
-  battleAnalysisModal.classList.remove("hidden");
-  document.body.style.overflow = "hidden";
-}
-
-function closeBattleAnalysis() {
-  battleAnalysisModal.classList.add("hidden");
-  document.body.style.overflow = "";
-}
-
-async function runBattleAnalysis() {
-  if (state.battleAnalysis.streaming) return;
-  const battleId = state.battleAnalysis.battleId;
-  if (!battleId) return;
-
-  state.battleAnalysis.streaming = true;
-  battleAnalysisEmpty.style.display = "none";
-  battleAnalysisResult.classList.add("hidden");
-  battleAnalysisLoading.classList.remove("hidden");
-  battleAnalysisStatus.textContent = "Analyzing matchup...";
-
-  let accumulated = "";
-  try {
-    const res = await fetch(`/api/battles/${battleId}/analysis`, { method: "POST" });
-    await streamSSE(res,
-      (chunk) => { accumulated += chunk; },
-      (msg) => {
-        if (msg.status) battleAnalysisStatus.textContent = msg.status;
-        if (msg.done) {
-          battleAnalysisLoading.classList.add("hidden");
-          if (msg.analysis) {
-            showBattleAnalysisResult(msg.analysis);
-            // Update cached data
-            const b = state.battles.find(x => x.id === battleId);
-            if (b) b.analysis = msg.analysis;
-          } else {
-            // Try to parse from accumulated text
-            try {
-              const j0 = accumulated.indexOf("{"), j1 = accumulated.lastIndexOf("}");
-              if (j0 !== -1 && j1 !== -1) {
-                const parsed = JSON.parse(accumulated.slice(j0, j1 + 1));
-                showBattleAnalysisResult(parsed);
-              }
-            } catch { battleAnalysisEmpty.style.display = ""; }
-          }
-        }
-      }
-    );
-  } catch (err) {
-    battleAnalysisLoading.classList.add("hidden");
-    battleAnalysisResult.innerHTML = `<div class="status-msg error">Error: ${escapeHtml(err.message)}</div>`;
-    battleAnalysisResult.classList.remove("hidden");
-  }
-  state.battleAnalysis.streaming = false;
-}
-
-function showBattleAnalysisResult(a) {
-  battleAnalysisEmpty.style.display = "none";
-  battleAnalysisLoading.classList.add("hidden");
-
-  const grade = a.grade || {};
-  const gradeClass = `grade-${(grade.overall || "C").replace(/[^A-DS]/g, "")}`;
-
-  const interactions = (a.key_interactions || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
-  const right = (a.what_went_right || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
-  const wrong = (a.what_went_wrong || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
-  const tips = (a.improvement_tips || []).map(s => `<li>${escapeHtml(s)}</li>`).join("");
-  const mvps = (a.card_mvps || []).map(s => `<span class="matchup-tag matchup-fav">${escapeHtml(s)}</span>`).join("");
-  const liabilities = (a.card_liabilities || []).map(s => `<span class="matchup-tag matchup-unfav">${escapeHtml(s)}</span>`).join("");
-
-  battleAnalysisResult.innerHTML = `
-    <div class="battle-analysis-overview">
-      <div class="grade-badge ${gradeClass}">${escapeHtml(grade.overall || "?")}</div>
-      <div class="battle-analysis-summary">
-        <div class="battle-matchup-line">
-          <span class="tag tag-archetype">${escapeHtml(a.your_deck_archetype || "")}</span>
-          <span>vs</span>
-          <span class="tag tag-archetype">${escapeHtml(a.opponent_deck_archetype || "")}</span>
-          <span class="matchup-tag matchup-${a.matchup_favorability === "Favorable" ? "fav" : a.matchup_favorability === "Unfavorable" ? "unfav" : "even"}">${escapeHtml(a.matchup_favorability || "")}</span>
-        </div>
-        <p>${escapeHtml(a.matchup_summary || "")}</p>
-        ${grade.summary ? `<p class="grade-summary">${escapeHtml(grade.summary)}</p>` : ""}
-      </div>
-    </div>
-    <div class="strategy-grid">
-      ${interactions ? `<div class="strategy-box full-width"><h4>Key Interactions</h4><ul>${interactions}</ul></div>` : ""}
-      ${right ? `<div class="strategy-box"><h4>What Worked</h4><ul>${right}</ul></div>` : ""}
-      ${wrong ? `<div class="strategy-box"><h4>What Didn't Work</h4><ul>${wrong}</ul></div>` : ""}
-      ${tips ? `<div class="strategy-box full-width"><h4>How to Improve</h4><ul>${tips}</ul></div>` : ""}
-    </div>
-    ${mvps || liabilities ? `
-    <div class="battle-card-assessment">
-      ${mvps ? `<div><strong>MVPs:</strong> ${mvps}</div>` : ""}
-      ${liabilities ? `<div><strong>Liabilities:</strong> ${liabilities}</div>` : ""}
-    </div>` : ""}
-  `;
-  battleAnalysisResult.classList.remove("hidden");
 }
 
 

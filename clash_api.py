@@ -9,7 +9,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(message)s",
 )
 
-CLASH_API_BASE = "https://api.clashroyale.com/v1"
+CLASH_API_BASE = "https://proxy.royaleapi.dev/v1"
 
 
 class ClashRoyaleAPI:

@@ -25,6 +25,11 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/battle-log")
+def battle_log():
+    return render_template("battle_log.html")
+
+
 @app.route("/api/cr-status")
 def cr_status():
     available = cr_available()
@@ -233,8 +238,10 @@ def analyze_deck():
                         decks=parsed.get("decks", []),
                         profile_id=profile_id,
                     )
-            except Exception:
-                pass
+                else:
+                    print(f"[recommend] no JSON braces found in response ({len(accumulated)} chars): {accumulated[:200]!r}", flush=True)
+            except Exception as e:
+                print(f"[recommend] JSON parse failed ({len(accumulated)} chars): {e}\nraw: {accumulated[:300]!r}", flush=True)
 
             yield f"data: {json.dumps({'done': True, 'usage': usage_data, **save_info})}\n\n"
         except Exception as e:
@@ -383,6 +390,21 @@ def get_saved_deck_analysis(deck_id):
     return jsonify(db.get_saved_deck_analysis(deck_id) or {})
 
 
+@app.route("/api/saved-decks/<int:deck_id>/analysis", methods=["PUT"])
+def save_saved_deck_analysis_direct(deck_id):
+    """Directly store an analysis dict without running AI (used to persist rec-deck results)."""
+    deck = db.get_saved_deck(deck_id)
+    if not deck:
+        return jsonify({"error": "Deck not found"}), 404
+    data = request.get_json() or {}
+    analysis = data.get("analysis")
+    collection_snapshot = data.get("collection", [])
+    if not analysis:
+        return jsonify({"error": "analysis is required"}), 400
+    db.save_saved_deck_analysis(deck_id, analysis, collection_snapshot)
+    return jsonify({"ok": True})
+
+
 @app.route("/api/saved-decks/<int:deck_id>/analysis", methods=["POST"])
 def run_saved_deck_analysis(deck_id):
     deck = db.get_saved_deck(deck_id)
@@ -523,10 +545,13 @@ def run_battle_analysis(battle_id):
 
     def generate():
         accumulated = ""
+        usage_data = None
         try:
             for kind, value in deck_analyzer.analyze_battle_stream(battle):
                 if kind == "status":
                     yield f"data: {json.dumps({'status': value})}\n\n"
+                elif kind == "usage":
+                    usage_data = value
                 else:
                     accumulated += value
                     yield f"data: {json.dumps({'chunk': value})}\n\n"
@@ -535,11 +560,11 @@ def run_battle_analysis(battle_id):
                 if j0 != -1 and j1 != -1:
                     parsed = json.loads(accumulated[j0:j1 + 1])
                     db.save_battle_analysis(battle_id, parsed)
-                    yield f"data: {json.dumps({'done': True, 'analysis': parsed})}\n\n"
+                    yield f"data: {json.dumps({'done': True, 'analysis': parsed, 'usage': usage_data})}\n\n"
                 else:
-                    yield f"data: {json.dumps({'done': True})}\n\n"
+                    yield f"data: {json.dumps({'done': True, 'usage': usage_data})}\n\n"
             except Exception:
-                yield f"data: {json.dumps({'done': True})}\n\n"
+                yield f"data: {json.dumps({'done': True, 'usage': usage_data})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
